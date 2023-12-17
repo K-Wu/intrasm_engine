@@ -13,3 +13,6 @@
 #include <torch/torch.h>
 
 #include <ATen/cuda/CUDAGraphsUtils.cuh>
+
+// Define CUDAGraphConstructor
+#include <helper_CUDAGraphConstructor.cu.h>
