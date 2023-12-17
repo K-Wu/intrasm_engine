@@ -5,13 +5,17 @@ This repository uses setup.py to build the package. To develop, install the pack
 pip install -e .
 ```
 
-### Reference
-https://github.com/NVIDIA/TransformerEngine/blob/main/transformer_engine/
+## Contributing
+### Pybind Overloading
+[Binding Disambiguation - pybind11 Documentation](https://pybind11.readthedocs.io/en/stable/classes.html#:~:text=We%20can%20disambiguate%20by%20casting%20them%20to%20function%20pointers)
 
-https://stackoverflow.com/a/19048754
+### Reference
+[TransformerEngine/transformer_engine - Github](https://github.com/NVIDIA/TransformerEngine/blob/main/transformer_engine/)
+
+[Python setup.py develop vs install - StackOverflow](https://stackoverflow.com/a/19048754)
 
 ## Directory Structure
-This repository follows the directory structure of [TransformerEngine](github.com/NVIDIA/TransformerEngine/).
+This repository follows the directory structure of [TransformerEngine - Github](github.com/NVIDIA/TransformerEngine/).
 
 ## Code Health Badges
 [![CodeFactor](https://www.codefactor.io/repository/github/k-wu/intrasm_engine/badge?s=749489c3b14056d2ece1446c9f6f3e55572069b3)](https://www.codefactor.io/repository/github/k-wu/intrasm_engine)
