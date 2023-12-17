@@ -5,14 +5,17 @@ This repository uses setup.py to build the package. To develop, install the pack
 pip install -e .
 ```
 
-## Contributing
-### Pybind Overloading
-[Binding Disambiguation - pybind11 Documentation](https://pybind11.readthedocs.io/en/stable/classes.html#:~:text=We%20can%20disambiguate%20by%20casting%20them%20to%20function%20pointers)
-
 ### Reference
 [TransformerEngine/transformer_engine - Github](https://github.com/NVIDIA/TransformerEngine/blob/main/transformer_engine/)
 
 [Python setup.py develop vs install - StackOverflow](https://stackoverflow.com/a/19048754)
+
+## Contributing
+### Pybind Overloading
+[Binding Disambiguation - pybind11 Documentation](https://pybind11.readthedocs.io/en/stable/classes.html#:~:text=We%20can%20disambiguate%20by%20casting%20them%20to%20function%20pointers)
+
+[Adding Lambda Function as a Class Method - pybind11 Documentation](https://pybind11.readthedocs.io/en/stable/classes.html#:~:text=Unfortunately%2C%20there%20is%20no%20suitable%20functionality%20in%20the%20Pet%20data%20structure%2C%20and%20it%20would%20be%20nice%20if%20we%20did%20not%20have%20to%20change%20it.)
+
 
 ## Directory Structure
 This repository follows the directory structure of [TransformerEngine - Github](github.com/NVIDIA/TransformerEngine/).

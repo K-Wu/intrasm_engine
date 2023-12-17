@@ -8,6 +8,7 @@ if __name__ == "__main__":
 
     stream = torch.cuda.Stream()
     print("stream addr <python>: ", stream.cuda_stream)
+    # stream.cuda_stream gets the value of cudaStream_t (which is a pointer) according to THCPStream_get_cuda_stream in pytorch/torch/csrc/cuda/Stream.cpp
     print(
         "stream addr round-trip <python>: ",
         iee.print_cudastream(stream.cuda_stream),
