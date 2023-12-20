@@ -16,3 +16,4 @@
 
 // Define CUDAGraphConstructor
 #include <helper_CUDAGraphConstructor.cu.h>
+#include <helper_cuda_graph.cu.h>

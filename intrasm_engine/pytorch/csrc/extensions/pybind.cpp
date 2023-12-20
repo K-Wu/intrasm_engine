@@ -34,14 +34,14 @@ static long print_cudaevent(long st) {
   return PyLong_AsLong(PyLong_FromVoidPtr(st_v));
 }
 
-void PyWrapper_registerStream(
+static void PyWrapper_registerStream(
     CUDAExperimentalGraphConstructor<cudaStream_t>& graph, long stream) {
   void* stream_v = (void*)stream;
   cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
   graph.registerStream(stream_t);
 }
 
-void PyWrapper_addEventRecordNode(
+static void PyWrapper_addEventRecordNode(
     CUDAExperimentalGraphConstructor<cudaStream_t>& graph, long event,
     long stream) {
   void* event_v = (void*)event;
@@ -51,7 +51,7 @@ void PyWrapper_addEventRecordNode(
   graph.addEventRecordNode(event_t, stream_t);
 }
 
-void PyWrapper_addStreamWaitEventNode(
+static void PyWrapper_addStreamWaitEventNode(
     CUDAExperimentalGraphConstructor<cudaStream_t>& graph, long stream,
     long event) {
   void* stream_v = (void*)stream;
@@ -61,8 +61,9 @@ void PyWrapper_addStreamWaitEventNode(
   graph.addStreamWaitEventNode(stream_t, event_t);
 }
 
-void PyWrapper_join(CUDAExperimentalGraphConstructor<cudaStream_t>& graph,
-                    std::vector<long> streams, long dst_stream) {
+static void PyWrapper_join(
+    CUDAExperimentalGraphConstructor<cudaStream_t>& graph,
+    std::vector<long> streams, long dst_stream) {
   std::vector<cudaStream_t> streams_t;
   for (auto stream : streams) {
     void* stream_v = (void*)stream;
@@ -74,23 +75,38 @@ void PyWrapper_join(CUDAExperimentalGraphConstructor<cudaStream_t>& graph,
   graph.join(streams_t, dst_stream_t);
 }
 
-void PyWrapper_notifyBeforeInvokingLibraryCall(
+static void PyWrapper_notifyBeforeInvokingLibraryCall(
     CUDAExperimentalGraphConstructor<cudaStream_t>& graph, long stream) {
   void* stream_v = (void*)stream;
   cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
   graph.notifyBeforeInvokingLibraryCall(stream_t);
 }
 
-void PyWrapper_notifyAfterInvokingLibraryCall(
+static void PyWrapper_notifyAfterInvokingLibraryCall(
     CUDAExperimentalGraphConstructor<cudaStream_t>& graph, long stream) {
   void* stream_v = (void*)stream;
   cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
   graph.notifyAfterInvokingLibraryCall(stream_t);
 }
 
+static long PyWrapper_combineGraphs(
+    CUDAExperimentalGraphConstructor<cudaStream_t>& graph_constructor_lhs,
+    CUDAExperimentalGraphConstructor<cudaStream_t>& graph_constructor_rhs) {
+  // Merge the two graphs and then launch it
+  cudaGraph_t merged_graph =
+      cudaGraphCreateCombinedGraph(std::vector<cudaGraph_t>{
+          graph_constructor_lhs.getGraph(), graph_constructor_rhs.getGraph()});
+  // Avoid double freeing the child graph, i.e., the graph of the GEMM
+  // partitioned since the destruction of parent graph will destroy it already
+  graph_constructor_lhs.getGraphWrapper()->notifyAddedAsChildGraph();
+  graph_constructor_rhs.getGraphWrapper()->notifyAddedAsChildGraph();
+  return PyLong_AsLong(PyLong_FromVoidPtr(merged_graph));
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("print_cudastream", &print_cudastream, "print cudaStream_t");
-  m.def("print_cudastream", &print_cudastreams, "print cudaStream_t");
+  m.def("print_cudastream", &print_cudastreams,
+        "print multiple cudaStream_t (overloaded API)");
   m.def("print_cudaevent", &print_cudaevent, "print cudaEvent_t");
   // Data structures
   py::class_<CUDAExperimentalGraphConstructor<cudaStream_t>>(
