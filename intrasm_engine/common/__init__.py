@@ -1,9 +1,10 @@
-"""FW agnostic user-end APIs"""
+"""FrameWork agnostic user-end APIs"""
 import ctypes
 import os
 import platform
 import subprocess
 import sys
+from .utils import *
 
 
 def get_intrasm_path():

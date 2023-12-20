@@ -22,6 +22,12 @@ if __name__ == "__main__":
 
     cuevent_start = cuda.CUevent(init_value=event_start.cuda_event)
     cuevent_stop = cuda.CUevent(init_value=event_stop.cuda_event)
+    # Test if destroying CUevent will destroy the underlying cudaEvent_t
+    del cuevent_start
+    del cuevent_stop
+    cuevent_start = cuda.CUevent(init_value=event_start.cuda_event)
+    cuevent_stop = cuda.CUevent(init_value=event_stop.cuda_event)
+
     print("cuevent_start: ", cuevent_start)
     print("cuevent_stop: ", cuevent_stop)
     elapsed_time = cudart.cudaEventElapsedTime(cuevent_start, cuevent_stop)

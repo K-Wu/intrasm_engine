@@ -16,6 +16,8 @@ pip install -e .
 
 [Adding Lambda Function as a Class Method - pybind11 Documentation](https://pybind11.readthedocs.io/en/stable/classes.html#:~:text=Unfortunately%2C%20there%20is%20no%20suitable%20functionality%20in%20the%20Pet%20data%20structure%2C%20and%20it%20would%20be%20nice%20if%20we%20did%20not%20have%20to%20change%20it.)
 
+### Pybind Resource Management
+[Smart Pointers](https://pybind11.readthedocs.io/en/stable/advanced/smart_ptrs.html)
 
 ## Directory Structure
 This repository follows the directory structure of [TransformerEngine - Github](github.com/NVIDIA/TransformerEngine/).

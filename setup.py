@@ -213,7 +213,7 @@ def setup_requirements() -> Tuple[List[str], List[str], List[str]]:
     """
 
     # Common requirements
-    setup_reqs: List[str] = []
+    setup_reqs: List[str] = ["GitPython", "cuda-python"]
     install_reqs: List[str] = ["pydantic"]
     test_reqs: List[str] = ["pytest"]
 
