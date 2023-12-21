@@ -1,6 +1,23 @@
-if __name__ == "__main__":
-    import torch
-    from cuda import cuda
+import torch
+from cuda import cuda
+
+
+def test_pycuda_cuda_torch_interop():
+    import pycuda.autoinit  # Initialize pycuda
+    import pycuda.driver
+
+    pycuda_stream = pycuda.driver.Stream()
+    custream = cuda.CUstream(init_value=pycuda_stream.handle)
+    curesult, id = cuda.cuStreamGetId(custream)
+    stream = torch.cuda.Stream(stream_ptr=pycuda_stream.handle)
+    custream_2 = cuda.CUstream(init_value=stream.cuda_stream)
+    curesult, id_2 = cuda.cuStreamGetId(custream_2)
+    print("id: ", id)
+    print("id_2: ", id_2)
+    assert id == id_2
+
+
+def test_cuda_torch_intrasm_engine_interop():
     from cuda import cudart
 
     stream = torch.cuda.Stream()
@@ -30,5 +47,13 @@ if __name__ == "__main__":
 
     print("cuevent_start: ", cuevent_start)
     print("cuevent_stop: ", cuevent_stop)
-    elapsed_time = cudart.cudaEventElapsedTime(cuevent_start, cuevent_stop)
+    curesult, elapsed_time = cudart.cudaEventElapsedTime(
+        cuevent_start, cuevent_stop
+    )
     print("elapsed_time: ", elapsed_time)
+    assert elapsed_time == event_start.elapsed_time(event_stop)
+
+
+if __name__ == "__main__":
+    test_cuda_torch_intrasm_engine_interop()
+    test_pycuda_cuda_torch_interop()
