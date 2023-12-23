@@ -16,6 +16,12 @@ def test_pycuda_cuda_torch_interop():
     print("id_2: ", id_2)
     assert id == id_2
 
+    # Test further if the stream is correctly produced
+    torch.cuda.set_stream(stream)
+    a = torch.randn(100, 100, device="cuda")
+    b = torch.randn(100, 100, device="cuda")
+    c = torch.matmul(a, b)
+
 
 def test_cuda_torch_intrasm_engine_interop():
     from cuda import cudart
