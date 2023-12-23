@@ -1,3 +1,6 @@
 [submodule "3rdparty/SparTA"]
 	path = 3rdparty/SparTA
 	url = git@github.com:K-Wu/SparTA.git
+[submodule "3rdparty/sputnik"]
+	path = 3rdparty/sputnik
+	url = git@github.com:K-Wu/sputnik_experimental.git
