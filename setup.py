@@ -215,7 +215,11 @@ def setup_requirements() -> Tuple[List[str], List[str], List[str]]:
     # Common requirements
     setup_reqs: List[str] = ["GitPython", "cuda-python", "pycuda"]
     install_reqs: List[str] = ["pydantic"]
-    test_reqs: List[str] = ["pytest"]
+    test_reqs: List[str] = [
+        "pytest",
+        # TODO: enable the following and test if it works
+        # "SparTA @ git+ssh://git@github.com:K-Wu/SparTA.git",
+    ]
 
     def add_unique(l: List[str], vals: Union[str, List[str]]) -> None:
         """Add entry to list if not already included"""
@@ -399,21 +403,26 @@ def setup_common_extension() -> CMakeExtension:
     )
 
 
-def _all_files_in_dir(path):
+def _all_files_in_dir(path: Path) -> List[Path]:
     return list(path.iterdir())
+
+
+def _all_cpp_files_in_dir(path: Path) -> List[Path]:
+    filenames = _all_files_in_dir(path)
+    return [filename for filename in filenames if filename.suffix == ".cpp"]
 
 
 def setup_pytorch_extension() -> setuptools.Extension:
     """Setup CUDA extension for PyTorch support"""
 
     # Source files
-    src_dir = root_path / "intrasm_engine" / "pytorch" / "csrc"
-    extensions_dir = src_dir / "extensions"
+    src_dir: Path = root_path / "intrasm_engine" / "pytorch" / "csrc"
+    extensions_dir: Path = src_dir / "extensions"
     sources = [
         src_dir / "MyStackClass.cpp",
         # src_dir / "common.cu",
         # src_dir / "ts_fp8_op.cpp",
-    ] + _all_files_in_dir(extensions_dir)
+    ] + _all_cpp_files_in_dir(extensions_dir)
 
     # Header files
     include_dirs = [
