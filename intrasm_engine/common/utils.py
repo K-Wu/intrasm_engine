@@ -1,9 +1,31 @@
 import git
 import hashlib
-import subprocess
+import os
 
 
-def get_repo_hash():
+# From https://stackoverflow.com/a/41920796/5555077
+def get_git_root(path: str) -> str:
+    git_repo = git.Repo(path, search_parent_directories=True)
+    git_root = git_repo.git.rev_parse("--show-toplevel")
+    return git_root
+
+
+def get_git_root_recursively(path: str) -> str:
+    """Get the git root path by recursively searching parent directories until the repo root is no longer a submodule."""
+    current_path = path
+    while True:
+        git_repo = git.Repo(current_path, search_parent_directories=True)
+        git_root = get_git_root(current_path)
+        if (
+            len(git_repo.git.rev_parse("--show-superproject-working-tree"))
+            == 0
+        ):
+            return os.path.normpath(git_root)
+        else:
+            current_path = os.path.dirname(git_root)
+
+
+def get_repo_hash() -> str:
     """Return the concatenation of commit hash and hash of `git diff`"""
     repo = git.Repo(search_parent_directories=True)
     sha = repo.head.object.hexsha
@@ -13,31 +35,5 @@ def get_repo_hash():
     return sha + hashlib.sha1(diff.encode()).hexdigest()
 
 
-# From /HET/hrt/utils/stat_sass_inst.py
-def demangle_cuda_function_name(func_name: str) -> str:
-    """Demangle CUDA function name."""
-    return (
-        subprocess.check_output(["cu++filt", func_name])
-        .decode("utf-8")
-        .strip()
-    )
-
-
 if __name__ == "__main__":
-    import os
-
-    # Read the symbol table .txt at the same directory as this script
-    with open(
-        os.path.join(
-            os.path.dirname(os.path.realpath(__file__)),
-            "sputnik_cuda_spmm_symbol_table.txt",
-        )
-    ) as fd:
-        for line in fd:
-            line = line.strip()
-            if line.startswith("STT_FUNC"):
-                mangled_func_name = line.split(" ")[-1]
-                print(
-                    mangled_func_name,
-                    demangle_cuda_function_name(mangled_func_name),
-                )
+    print(get_git_root_recursively(os.path.dirname(__file__)))
