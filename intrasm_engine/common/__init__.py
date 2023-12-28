@@ -7,8 +7,8 @@ import sys
 from .utils import *
 
 
-def get_intrasm_path():
-    """Find Transformer Engine install path using pip"""
+def get_intrasm_path() -> str:
+    """Find IntraSM Engine install path using pip"""
 
     command = [sys.executable, "-m", "pip", "show", "intrasm_engine"]
     result = subprocess.run(
@@ -19,7 +19,7 @@ def get_intrasm_path():
 
 
 def _load_library():
-    """Load shared library with Transformer Engine C extensions"""
+    """Load shared library with IntraSM Engine C framework-agnostic extensions"""
 
     system = platform.system()
     if system == "Linux":
