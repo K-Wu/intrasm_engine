@@ -10,7 +10,6 @@ if __name__ == "__main__":
     torch.classes.load_library(
         "intrasm_engine_extensions.cpython-311-x86_64-linux-gnu.so"
     )
-    # stack_1 = torch.classes.my_classes.MyStackClass(["hello", "world"])
     stack_1 = (
         torch.classes.my_classes.MyStackClassExampleFactory().get_example()
     )
