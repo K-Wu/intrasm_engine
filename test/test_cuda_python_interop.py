@@ -22,9 +22,8 @@ def test_pycuda_cuda_torch_interop():
     b = torch.randn(100, 100, device="cuda")
     c = torch.matmul(a, b)
 
-    torch.cuda.set_stream(
-        torch.cuda.Stream()
-    )  # Reset the stream because the external stream from pycuda will be destroyed after exiting the function, causing invalid context error when running future torch cuda operations
+    # Reset the stream because the external stream from pycuda will be destroyed after exiting the function, causing invalid context error when running future torch cuda operations
+    torch.cuda.set_stream(torch.cuda.Stream())
 
 
 def test_cuda_torch_intrasm_engine_interop():
