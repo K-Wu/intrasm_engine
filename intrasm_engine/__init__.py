@@ -49,3 +49,6 @@ def initialize_current_streams():
     ## Cupy
     # To set cupy stream during cupy computation, use cupy.cuda.ExternalStream. Reference: https://docs.cupy.dev/en/stable/reference/generated/cupy.cuda.ExternalStream.html#cupy-cuda-externalstream
     # An example of setting up cupy-torch interoperability: https://github.com/cupy/cupy/blob/8368780c911b7a7fb7b881ec57ac4f53732c083f/docs/source/user_guide/interoperability.rst#cuda-stream-pointers
+
+
+initialize_current_streams()
