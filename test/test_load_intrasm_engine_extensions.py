@@ -1,9 +1,9 @@
 if __name__ == "__main__":
     import intrasm_engine
-    import intrasm_engine_extensions as iee  # Loading iee along without intrasm_engine will trigger libc10.so not found error
+    import intrasm_engine_extensions as iex  # Loading iex along without intrasm_engine will trigger libc10.so not found error
 
     def test_load_class():
-        print(iee.CUDAExperimentalGraphConstructor)
+        print(iex.CUDAExperimentalGraphConstructor)
 
     import torch
 
@@ -13,7 +13,7 @@ if __name__ == "__main__":
         # stream.cuda_stream gets the value of cudaStream_t (which is a pointer) according to THCPStream_get_cuda_stream in pytorch/torch/csrc/cuda/Stream.cpp
         print(
             "stream addr round-trip <python>: ",
-            hex(iee.print_cudastream(stream.cuda_stream)),
+            hex(iex.print_cudastream(stream.cuda_stream)),
         )
 
     def test_print_streams():
@@ -26,7 +26,7 @@ if __name__ == "__main__":
             "streams addr round-trip <python>: ",
             list(
                 map(
-                    lambda s: hex(iee.print_cudastream(s.cuda_stream)), streams
+                    lambda s: hex(iex.print_cudastream(s.cuda_stream)), streams
                 )
             ),
         )
@@ -38,7 +38,7 @@ if __name__ == "__main__":
         # event.cuda_event gets the value of cudaEvent_t (which is a pointer) according to THCPEvent_get_cuda_event in pytorch/torch/csrc/cuda/Event.cpp
         print(
             "event addr round-trip <python>: ",
-            hex(iee.print_cudaevent(event.cuda_event)),
+            hex(iex.print_cudaevent(event.cuda_event)),
         )
 
     test_load_class()

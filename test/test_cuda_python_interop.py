@@ -3,7 +3,7 @@ from cuda import cuda
 
 
 def test_pycuda_cuda_torch_interop():
-    import pycuda.autoinit  # Initialize pycuda
+    import pycuda.autoprimaryctx  # Initialize pycuda
     import pycuda.driver
 
     pycuda_stream = pycuda.driver.Stream()
@@ -21,6 +21,10 @@ def test_pycuda_cuda_torch_interop():
     a = torch.randn(100, 100, device="cuda")
     b = torch.randn(100, 100, device="cuda")
     c = torch.matmul(a, b)
+
+    torch.cuda.set_stream(
+        torch.cuda.Stream()
+    )  # Reset the stream because the external stream from pycuda will be destroyed after exiting the function, causing invalid context error when running future torch cuda operations
 
 
 def test_cuda_torch_intrasm_engine_interop():
@@ -60,6 +64,40 @@ def test_cuda_torch_intrasm_engine_interop():
     assert elapsed_time == event_start.elapsed_time(event_stop)
 
 
+def test_load_torch_tensor_to_cupy():
+    import cupy
+    import cupyx
+
+    # The cupy.asarray API is zero cost
+    # Reference: https://docs.cupy.dev/en/stable/user_guide/interoperability.html#pytorch
+
+    def _make(xp, sp, dtype):
+        data = xp.array([0, 1, 3, 2], dtype)
+        indices = xp.array([0, 0, 2, 1], "i")
+        indptr = xp.array([0, 1, 2, 3, 4], "i")
+        # 0, 1, 0, 0
+        # 0, 0, 0, 2
+        # 0, 0, 3, 0
+        return sp.csc_matrix((data, indices, indptr), shape=(3, 4))
+
+    x_sparse = _make(cupy, cupyx.scipy.sparse, float)
+    y_sparse = cupy.array([[1, 2, 3, 4], [1, 2, 3, 4]], float).transpose()
+    expected_sparse = x_sparse * y_sparse
+
+    y_sparse2 = cupy.asarray(
+        torch.tensor([[1, 2, 3, 4], [1, 2, 3, 4]], dtype=float, device="cuda")
+    ).transpose()
+    z_sparse = x_sparse * y_sparse2
+    cupy.cuda.Device().synchronize()
+    cupy.testing.assert_array_equal(z_sparse, expected_sparse)
+
+    # Checking if y_sparse is still valid after deleting y_sparse2
+    del y_sparse2
+    print(y_sparse)
+
+
 if __name__ == "__main__":
     test_cuda_torch_intrasm_engine_interop()
+    test_load_torch_tensor_to_cupy()
     test_pycuda_cuda_torch_interop()
+    d = torch.tensor([[1, 2, 3, 4], [1, 2, 3, 4]], dtype=float, device="cuda")
