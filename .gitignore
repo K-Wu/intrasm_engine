@@ -7,3 +7,4 @@ __pycache__/
 *.log
 data
 data/
+intrasm_engine/common/sputnik_cuda_spmm_symbol_table.txt
