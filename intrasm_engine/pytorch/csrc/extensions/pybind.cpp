@@ -92,7 +92,7 @@ c10::cuda::CaptureId_t capture_sequence_id() {
   // cudaStreamGetCaptureInfo". (But how do we know GetCaptureInfo never sets
   // id_ to 0? Because that's the current behavior, and I asked cuda devs to
   // keep it that way, and they agreed.)
-  static std::atomic<CaptureId_t> uuid{1};
+  static std::atomic<c10::cuda::CaptureId_t> uuid{1};
   return uuid++;
 }
 
@@ -101,17 +101,31 @@ c10::cuda::CaptureId_t capture_sequence_id() {
 /// Constructor.
 /// Based on at::cuda::CUDAGraph at
 /// https://github.com/pytorch/pytorch/blob/ff4aac109a990e64d82fb73b5af5fa5e69278580/c10/cuda/CUDAStream.cpp
-class CUDAGraphCaptureNotifier {
+class CUDAGraphCaptureNotifier : torch::CustomClassHolder {
  public:
-  explicit CUDAGraphCaptureNotifier() : {
+  explicit CUDAGraphCaptureNotifier()
+      : capture_stream_(at::cuda::getCurrentCUDAStream()) {
 #if defined(USE_ROCM)
     TORCH_CHECK(false,
                 "CUDAGraphCaptureNotifier is not supported on ROCm yet.");
 #endif
   }
 
-  void capture_begin(MempoolId_t pool /*=0*/) {
-    auto options = TensorOptions().device(at::kCUDA).dtype(at::kLong);
+  void capture_begin(c10::cuda::MempoolId_t pool /*=0*/) {
+    // The API and implementation of this function is based on
+    // https://pytorch.org/docs/stable/generated/torch.cuda.CUDAGraph.html
+
+    // For now, a CUDAGraph instance only accommodates the default generator on
+    // the device that's
+    // current when capture begins. If any op in the captured region uses a
+    // non-default generator, or a generator on another device, the offending
+    // generator will throw an error. These restrictions simplify CUDAGraph, but
+    // could be relaxed in the future: in principle, the underlying Cuda calls
+    // do permit cross-device ops to be captured.
+    auto* gen = at::get_generator_or_default<at::CUDAGeneratorImpl>(
+        c10::nullopt, at::cuda::detail::getDefaultCUDAGenerator());
+
+    auto options = c10::TensorOptions().device(at::kCUDA).dtype(at::kLong);
     seed_extragraph_ = at::empty({1}, options);
     offset_extragraph_ = at::empty({1}, options);
 
@@ -152,16 +166,8 @@ class CUDAGraphCaptureNotifier {
     // autograd thread's free() call triggering an invalid cudaEventRecord in
     // the caching allocator due to the capture status being updated _after_ a
     // capture had already started.
-    c10::cuda::CUDACachingAllocator::beginAllocateToPool(
-        capture_dev_, mempool_id_, [this](cudaStream_t stream) {
-          cudaStreamCaptureStatus status;
-          CaptureId_t stream_capture_id;
-          AT_CUDA_CHECK(
-              cudaStreamGetCaptureInfo(stream, &status, &stream_capture_id));
-          return status ==
-                     cudaStreamCaptureStatus::cudaStreamCaptureStatusActive &&
-                 stream_capture_id == capture_id_;
-        });
+    c10::cuda::CUDACachingAllocator::beginAllocateStreamToPool(
+        capture_dev_, capture_stream_, mempool_id_);
 
     cudaStreamCaptureStatus status;
     AT_CUDA_CHECK(cudaStreamGetCaptureInfo(stream, &status, &capture_id_));
@@ -171,16 +177,18 @@ class CUDAGraphCaptureNotifier {
   }
 
   void capture_end() {
-    c10::cuda::CUDACachingAllocator::endAllocateToPool(capture_dev_,
-                                                       mempool_id_);
+    // The API and implementation of this function is based on
+    // https://pytorch.org/docs/stable/generated/torch.cuda.CUDAGraph.html
+
+    c10::cuda::CUDACachingAllocator::endAllocateStreamToPool(capture_dev_,
+                                                             capture_stream_);
 
     auto stream = at::cuda::getCurrentCUDAStream();
 
     TORCH_CHECK(stream == capture_stream_,
                 "Capture must end on the same stream it began on.");
-    TORCH_CHECK(graph_ != NULL, "Invalid capture.");
-    auto* gen = get_generator_or_default<CUDAGeneratorImpl>(
-        c10::nullopt, cuda::detail::getDefaultCUDAGenerator());
+    auto* gen = at::get_generator_or_default<at::CUDAGeneratorImpl>(
+        c10::nullopt, at::cuda::detail::getDefaultCUDAGenerator());
     TORCH_CHECK(gen == capture_gen_,
                 "Default CUDA RNG generator on current device at capture end "
                 "is different from default generator on current device "
@@ -188,25 +196,18 @@ class CUDAGraphCaptureNotifier {
     wholegraph_increment_ = gen->capture_epilogue();
 
     size_t numCUDAGraphNodes = 0;
-    AT_CUDA_CHECK(cudaGraphGetNodes(graph_, NULL, &numCUDAGraphNodes));
-    if (numCUDAGraphNodes == 0) {
-      TORCH_WARN(
-          "The CUDA Graph is empty. This usually means that the graph was ",
-          "attempted to be captured on wrong device or stream.");
-    }
   }
 
   void replay() {
-    TORCH_CHECK(
-        has_graph_exec_,
-        "Called CUDAGraph::replay without a preceding successful capture.");
+    // The API and implementation of this function is based on
+    // https://pytorch.org/docs/stable/generated/torch.cuda.CUDAGraph.html
 
     c10::OptionalDeviceGuard device_guard{capture_stream_.device()};
 
     // Just like any RNG consumer kernel!
-    auto* gen = get_generator_or_default<CUDAGeneratorImpl>(
-        c10::nullopt, cuda::detail::getDefaultCUDAGenerator());
-    PhiloxCudaState rng_engine_inputs;
+    auto* gen = at::get_generator_or_default<at::CUDAGeneratorImpl>(
+        c10::nullopt, at::cuda::detail::getDefaultCUDAGenerator());
+    at::PhiloxCudaState rng_engine_inputs;
     {
       std::lock_guard<std::mutex> lock(gen->mutex_);
       rng_engine_inputs = gen->philox_cuda_state(wholegraph_increment_);
@@ -215,21 +216,20 @@ class CUDAGraphCaptureNotifier {
     offset_extragraph_.fill_(int64_t(rng_engine_inputs.offset_.val));
   }
 
-  void pool() {
-    TORCH_CHECK(
-        has_graph_exec_,
-        "Called CUDAGraph::pool() without a preceding successful capture.");
+  c10::cuda::MempoolId_t pool() {
+    // The API and implementation of this function is based on
+    // https://pytorch.org/docs/stable/generated/torch.cuda.CUDAGraph.html
     return mempool_id_;
   }
 
  private:
   // uuid of this instance's current capture, used to
   // specify the pool.
-  CaptureId_t id_;
+  c10::cuda::CaptureId_t id_;
 
   // the ID assigned by cuda during graph capture,
   // used to identify when a stream is participating in capture
-  CaptureId_t capture_id_ = -1;
+  c10::cuda::CaptureId_t capture_id_ = -1;
 
   // uuid used to request a particular private mempool from
   // CUDACachingAllocator. By default, this will be set to {id_, 0}.
@@ -244,7 +244,7 @@ class CUDAGraphCaptureNotifier {
   //
   // Sharing a mempool across graphs saves memory, and it's safe if you
   // know you'll replay those graphs in the same order you captured them.
-  MempoolId_t mempool_id_;
+  c10::cuda::MempoolId_t mempool_id_;
 
   // Stream on which capture began
   at::cuda::CUDAStream capture_stream_;
@@ -265,73 +265,76 @@ class CUDAGraphCaptureNotifier {
 };
 
 /// CUDA Graph Constructors Class methods
-void PyWrapper_registerStream(
-    CUDAExperimentalGraphConstructor<cudaStream_t>& graph, long stream) {
-  void* stream_v = (void*)stream;
-  cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
-  graph.registerStream(stream_t);
-}
-
-void PyWrapper_addEventRecordNode(
-    CUDAExperimentalGraphConstructor<cudaStream_t>& graph, long event,
-    long stream) {
-  void* event_v = (void*)event;
-  cudaEvent_t event_t = static_cast<cudaEvent_t>(event_v);
-  void* stream_v = (void*)stream;
-  cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
-  graph.addEventRecordNode(event_t, stream_t);
-}
-
-void PyWrapper_addStreamWaitEventNode(
-    CUDAExperimentalGraphConstructor<cudaStream_t>& graph, long stream,
-    long event) {
-  void* stream_v = (void*)stream;
-  cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
-  void* event_v = (void*)event;
-  cudaEvent_t event_t = static_cast<cudaEvent_t>(event_v);
-  graph.addStreamWaitEventNode(stream_t, event_t);
-}
-
-void PyWrapper_join(CUDAExperimentalGraphConstructor<cudaStream_t>& graph,
-                    std::vector<long> streams, long dst_stream) {
-  std::vector<cudaStream_t> streams_t;
-  for (auto stream : streams) {
+class PyWrapperCUDAGraphConstructor : torch::CustomClassHolder {
+ public:
+  PyWrapperCUDAGraphConstructor() : constructor_() {}
+  void registerStream(long stream) {
     void* stream_v = (void*)stream;
     cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
-    streams_t.push_back(stream_t);
+    constructor_.registerStream(stream_t);
   }
-  void* dst_stream_v = (void*)dst_stream;
-  cudaStream_t dst_stream_t = static_cast<cudaStream_t>(dst_stream_v);
-  graph.join(streams_t, dst_stream_t);
-}
 
-void PyWrapper_notifyBeforeInvokingLibraryCall(
-    CUDAExperimentalGraphConstructor<cudaStream_t>& graph, long stream) {
-  void* stream_v = (void*)stream;
-  cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
-  graph.notifyBeforeInvokingLibraryCall(stream_t);
-}
+  void addEventRecordNode(long event, long stream) {
+    void* event_v = (void*)event;
+    cudaEvent_t event_t = static_cast<cudaEvent_t>(event_v);
+    void* stream_v = (void*)stream;
+    cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
+    constructor_.addEventRecordNode(event_t, stream_t);
+  }
 
-void PyWrapper_notifyAfterInvokingLibraryCall(
-    CUDAExperimentalGraphConstructor<cudaStream_t>& graph, long stream) {
-  void* stream_v = (void*)stream;
-  cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
-  graph.notifyAfterInvokingLibraryCall(stream_t);
-}
+  void addStreamWaitEventNode(long stream, long event) {
+    void* stream_v = (void*)stream;
+    cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
+    void* event_v = (void*)event;
+    cudaEvent_t event_t = static_cast<cudaEvent_t>(event_v);
+    constructor_.addStreamWaitEventNode(stream_t, event_t);
+  }
 
-long PyWrapper_combineGraphs(
-    CUDAExperimentalGraphConstructor<cudaStream_t>& graph_constructor_lhs,
-    CUDAExperimentalGraphConstructor<cudaStream_t>& graph_constructor_rhs) {
-  // Merge the two graphs and then launch it
-  cudaGraph_t merged_graph =
-      cudaGraphCreateCombinedGraph(std::vector<cudaGraph_t>{
-          graph_constructor_lhs.getGraph(), graph_constructor_rhs.getGraph()});
-  // Avoid double freeing the child graph, i.e., the graph of the GEMM
-  // partitioned since the destruction of parent graph will destroy it already
-  graph_constructor_lhs.getGraphWrapper()->notifyAddedAsChildGraph();
-  graph_constructor_rhs.getGraphWrapper()->notifyAddedAsChildGraph();
-  return PyLong_AsLong(PyLong_FromVoidPtr(merged_graph));
-}
+  void join(std::vector<long> streams, long dst_stream) {
+    std::vector<cudaStream_t> streams_t;
+    for (auto stream : streams) {
+      void* stream_v = (void*)stream;
+      cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
+      streams_t.push_back(stream_t);
+    }
+    void* dst_stream_v = (void*)dst_stream;
+    cudaStream_t dst_stream_t = static_cast<cudaStream_t>(dst_stream_v);
+    constructor_.join(streams_t, dst_stream_t);
+  }
+
+  void notifyBeforeInvokingLibraryCall(long stream) {
+    void* stream_v = (void*)stream;
+    cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
+    constructor_.notifyBeforeInvokingLibraryCall(stream_t);
+  }
+
+  void notifyAfterInvokingLibraryCall(long stream) {
+    void* stream_v = (void*)stream;
+    cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
+    constructor_.notifyAfterInvokingLibraryCall(stream_t);
+  }
+
+  long combineGraphs(PyWrapperCUDAGraphConstructor graph_constructor_rhs) {
+    // Merge the two graphs and then launch it
+    cudaGraph_t merged_graph =
+        cudaGraphCreateCombinedGraph(std::vector<cudaGraph_t>{
+            constructor_.getGraph(),
+            graph_constructor_rhs.constructor_.getGraph()});
+    // Avoid double freeing the child graph, i.e., the graph of the GEMM
+    // partitioned since the destruction of parent graph will destroy it already
+    constructor_.getGraphWrapper()->notifyAddedAsChildGraph();
+    graph_constructor_rhs.constructor_.getGraphWrapper()
+        ->notifyAddedAsChildGraph();
+    return PyLong_AsLong(PyLong_FromVoidPtr(merged_graph));
+  }
+
+  void dumpGraph(const std::string& result_path) {
+    constructor_.dumpGraph(result_path);
+  }
+
+ private:
+  CUDAExperimentalGraphConstructor<cudaStream_t> constructor_;
+};
 }  // namespace
 }  // namespace IntraSMEngine
 
@@ -359,29 +362,15 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       .def(
           "capture_begin",
           [](IntraSMEngine::CUDAGraphCaptureNotifier& self,
-             c10::optional<c10::cuda::MempoolId_t> pool_opt,
-             std::string capture_error_mode) {
-            cudaStreamCaptureMode capture_mode;
+             c10::optional<c10::cuda::MempoolId_t> pool_opt) {
             c10::cuda::MempoolId_t pool = pool_opt.has_value()
                                               ? pool_opt.value()
                                               : c10::cuda::MempoolId_t{0, 0};
-            if (capture_error_mode == "global") {
-              capture_mode = cudaStreamCaptureModeGlobal;
-            } else if (capture_error_mode == "thread_local") {
-              capture_mode = cudaStreamCaptureModeThreadLocal;
-            } else if (capture_error_mode == "relaxed") {
-              capture_mode = cudaStreamCaptureModeRelaxed;
-            } else {
-              TORCH_CHECK(false,
-                          "Unknown capture error mode. Expected `global`, "
-                          "`thread_local`, or `relaxed`, got ",
-                          capture_error_mode);
-            }
-            return self.capture_begin(pool, capture_mode);
+            return self.capture_begin(pool);
           },
           // Reference:
           // https://pybind11.readthedocs.io/en/stable/advanced/functions.html#non-converting-arguments:~:text=A%20py%3A%3Aargs%20argument%20implies%20that
-          py::arg("pool"), py::arg("capture_error_mode"),
+          py::arg("pool"),
           // Reference:
           // https://pybind11.readthedocs.io/en/stable/advanced/functions.html#call-guard
           py::call_guard<py::gil_scoped_release>())
@@ -393,26 +382,34 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       .def("pool", torch::wrap_pybind_function_no_gil(
                        &IntraSMEngine::CUDAGraphCaptureNotifier::pool));
 
-  shared_ptr_class_<CUDAExperimentalGraphConstructor<cudaStream_t>>(
+  shared_ptr_class_<IntraSMEngine::PyWrapperCUDAGraphConstructor>(
       m, "CUDAExperimentalGraphConstructor")
       .def(py::init<>())
-      .def("register_stream", torch::wrap_pybind_function_no_gil(
-                                  &IntraSMEngine::PyWrapper_registerStream))
+      .def("register_stream",
+           torch::wrap_pybind_function_no_gil(
+               &IntraSMEngine::PyWrapperCUDAGraphConstructor::registerStream))
       .def("add_event_record_node",
            torch::wrap_pybind_function_no_gil(
-               &IntraSMEngine::PyWrapper_addEventRecordNode))
+               &IntraSMEngine::PyWrapperCUDAGraphConstructor::
+                   addEventRecordNode))
       .def("add_stream_wait_event_node",
            torch::wrap_pybind_function_no_gil(
-               &IntraSMEngine::PyWrapper_addStreamWaitEventNode))
-      .def("join",
-           torch::wrap_pybind_function_no_gil(&IntraSMEngine::PyWrapper_join))
+               &IntraSMEngine::PyWrapperCUDAGraphConstructor::
+                   addStreamWaitEventNode))
+      .def("join", torch::wrap_pybind_function_no_gil(
+                       &IntraSMEngine::PyWrapperCUDAGraphConstructor::join))
       .def("notify_before_invoking_library_call",
            torch::wrap_pybind_function_no_gil(
-               &IntraSMEngine::PyWrapper_notifyBeforeInvokingLibraryCall))
+               &IntraSMEngine::PyWrapperCUDAGraphConstructor::
+                   notifyBeforeInvokingLibraryCall))
       .def("notify_after_invoking_library_call",
            torch::wrap_pybind_function_no_gil(
-               &IntraSMEngine::PyWrapper_notifyAfterInvokingLibraryCall))
+               &IntraSMEngine::PyWrapperCUDAGraphConstructor::
+                   notifyAfterInvokingLibraryCall))
+      .def("combine_graphs",
+           torch::wrap_pybind_function_no_gil(
+               &IntraSMEngine::PyWrapperCUDAGraphConstructor::combineGraphs))
       .def("dump_graph",
            torch::wrap_pybind_function_no_gil(
-               &CUDAExperimentalGraphConstructor<cudaStream_t>::dumpGraph));
+               &IntraSMEngine::PyWrapperCUDAGraphConstructor::dumpGraph));
 }
