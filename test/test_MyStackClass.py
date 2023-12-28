@@ -10,4 +10,15 @@ if __name__ == "__main__":
     torch.classes.load_library(
         "intrasm_engine_extensions.cpython-311-x86_64-linux-gnu.so"
     )
-    torch.classes.my_classes.MyStackClass(["just", "testing"])
+    # stack_1 = torch.classes.my_classes.MyStackClass(["hello", "world"])
+    stack_1 = (
+        torch.classes.my_classes.MyStackClassExampleFactory().get_example()
+    )
+    stack_2 = torch.classes.my_classes.MyStackClass(["just", "testing"])
+    stack_2.merge(stack_1)
+    print("stack 1")
+    for idx in range(2):
+        print(stack_1.pop())
+    print("stack 2")
+    for idx in range(4):
+        print(stack_2.pop())

@@ -33,13 +33,21 @@ struct MyStackClass : torch::CustomClassHolder {
     }
   }
 };
+
+struct MyStackClassExampleFactory : torch::CustomClassHolder {
+  c10::intrusive_ptr<MyStackClass<std::string>> getExample() {
+    return c10::make_intrusive<MyStackClass<std::string>>(
+        std::vector<std::string>{"hello", "world"});
+  }
+};
+
 // Notice a few things:
 // - We pass the class to be registered as a template parameter to
 //   `torch::class_`. In this instance, we've passed the
-//   specialization of the MyStackClass class ``MyStackClass<std::string>``.
-//   In general, you cannot register a non-specialized template
-//   class. For non-templated classes, you can just pass the
-//   class name directly as the template parameter.
+//   specialization of the MyStackClass class
+//   ``MyStackClass<std::string>``. In general, you cannot register a
+//   non-specialized template class. For non-templated classes, you can
+//   just pass the class name directly as the template parameter.
 // - The arguments passed to the constructor make up the "qualified name"
 //   of the class. In this case, the registered class will appear in
 //   Python and C++ as `torch.classes.my_classes.MyStackClass`. We call
@@ -72,4 +80,8 @@ TORCH_LIBRARY(my_classes, m) {
       .def("pop", &MyStackClass<std::string>::pop)
       .def("clone", &MyStackClass<std::string>::clone)
       .def("merge", &MyStackClass<std::string>::merge);
+
+  m.class_<MyStackClassExampleFactory>("MyStackClassExampleFactory")
+      .def(torch::init<>())
+      .def("get_example", &MyStackClassExampleFactory::getExample);
 }
