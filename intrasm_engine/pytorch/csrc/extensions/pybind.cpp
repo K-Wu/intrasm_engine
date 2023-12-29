@@ -11,7 +11,9 @@ namespace IntraSMEngine {
 namespace {
 /// Debug utilities
 long print_cudastream(long st) {
-  void* st_v = (void*)st;
+  // This two-step casting is preferred:
+  // https://stackoverflow.com/a/68137312/5555077
+  void* st_v = reinterpret_cast<void*>(st);
   cudaStream_t stream = static_cast<cudaStream_t>(st_v);
   std::cout << "stream: " << stream << std::endl;
   return PyLong_AsLong(PyLong_FromVoidPtr(st_v));
@@ -27,7 +29,7 @@ std::vector<long> print_cudastreams(std::vector<long> sts) {
 }
 
 long print_cudaevent(long st) {
-  void* st_v = (void*)st;
+  void* st_v = reinterpret_cast<void*>(st);
   if (st_v == nullptr) {
     throw std::runtime_error(
         "torch.cuda.event is nullptr. Please initialize it first. Notice that "
@@ -101,7 +103,10 @@ c10::cuda::CaptureId_t capture_sequence_id() {
 /// Constructor.
 /// Based on at::cuda::CUDAGraph at
 /// https://github.com/pytorch/pytorch/blob/ff4aac109a990e64d82fb73b5af5fa5e69278580/c10/cuda/CUDAStream.cpp
-class CUDAGraphCaptureNotifier : torch::CustomClassHolder {
+
+// No need to inherit from torch::CustomClassHolder because the holder type is
+// std::shared_ptr instead of c10::intrusive_ptr
+class CUDAGraphCaptureNotifier {
  public:
   explicit CUDAGraphCaptureNotifier()
       : capture_stream_(at::cuda::getCurrentCUDAStream()) {
@@ -194,8 +199,6 @@ class CUDAGraphCaptureNotifier : torch::CustomClassHolder {
                 "is different from default generator on current device "
                 "when capture began");
     wholegraph_increment_ = gen->capture_epilogue();
-
-    size_t numCUDAGraphNodes = 0;
   }
 
   void replay() {
@@ -264,28 +267,46 @@ class CUDAGraphCaptureNotifier : torch::CustomClassHolder {
   uint64_t wholegraph_increment_;
 };
 
+// No need to inherit from torch::CustomClassHolder because the holder type is
+// std::shared_ptr instead of c10::intrusive_ptr
+class PyWrapperCudaGraphWrapper {
+ public:
+  PyWrapperCudaGraphWrapper(cudaGraph_t graph) : graph_wrapper_(graph) {}
+  PyWrapperCudaGraphWrapper(long graph)
+      : graph_wrapper_(
+            static_cast<cudaGraph_t>(reinterpret_cast<void*>(graph))) {}
+  cudaGraph_t getGraph() { return graph_wrapper_.get<cudaGraph_t>(); }
+  void notifyAddedAsChildGraph() { graph_wrapper_.notifyAddedAsChildGraph(); }
+  bool isAddedAsChildGraph() { return graph_wrapper_.addedAsChildGraph; }
+
+ private:
+  struct CudaGraphWrapper graph_wrapper_;
+};
+
 /// CUDA Graph Constructors Class methods
-class PyWrapperCUDAGraphConstructor : torch::CustomClassHolder {
+// No need to inherit from torch::CustomClassHolder because the holder type is
+// std::shared_ptr instead of c10::intrusive_ptr
+class PyWrapperCUDAGraphConstructor {
  public:
   PyWrapperCUDAGraphConstructor() : constructor_() {}
   void registerStream(long stream) {
-    void* stream_v = (void*)stream;
+    void* stream_v = reinterpret_cast<void*>(stream);
     cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
     constructor_.registerStream(stream_t);
   }
 
   void addEventRecordNode(long event, long stream) {
-    void* event_v = (void*)event;
+    void* event_v = reinterpret_cast<void*>(event);
     cudaEvent_t event_t = static_cast<cudaEvent_t>(event_v);
-    void* stream_v = (void*)stream;
+    void* stream_v = reinterpret_cast<void*>(stream);
     cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
     constructor_.addEventRecordNode(event_t, stream_t);
   }
 
   void addStreamWaitEventNode(long stream, long event) {
-    void* stream_v = (void*)stream;
+    void* stream_v = reinterpret_cast<void*>(stream);
     cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
-    void* event_v = (void*)event;
+    void* event_v = reinterpret_cast<void*>(event);
     cudaEvent_t event_t = static_cast<cudaEvent_t>(event_v);
     constructor_.addStreamWaitEventNode(stream_t, event_t);
   }
@@ -293,28 +314,33 @@ class PyWrapperCUDAGraphConstructor : torch::CustomClassHolder {
   void join(std::vector<long> streams, long dst_stream) {
     std::vector<cudaStream_t> streams_t;
     for (auto stream : streams) {
-      void* stream_v = (void*)stream;
+      void* stream_v = reinterpret_cast<void*>(stream);
       cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
       streams_t.push_back(stream_t);
     }
-    void* dst_stream_v = (void*)dst_stream;
+    void* dst_stream_v = reinterpret_cast<void*>(dst_stream);
     cudaStream_t dst_stream_t = static_cast<cudaStream_t>(dst_stream_v);
     constructor_.join(streams_t, dst_stream_t);
   }
 
+  void executeGraph() {
+    // TODO: implement this
+  }
+
   void notifyBeforeInvokingLibraryCall(long stream) {
-    void* stream_v = (void*)stream;
+    void* stream_v = reinterpret_cast<void*>(stream);
     cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
     constructor_.notifyBeforeInvokingLibraryCall(stream_t);
   }
 
   void notifyAfterInvokingLibraryCall(long stream) {
-    void* stream_v = (void*)stream;
+    void* stream_v = reinterpret_cast<void*>(stream);
     cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
     constructor_.notifyAfterInvokingLibraryCall(stream_t);
   }
 
-  long combineGraphs(PyWrapperCUDAGraphConstructor graph_constructor_rhs) {
+  template <typename T>
+  T combineGraphs(PyWrapperCUDAGraphConstructor graph_constructor_rhs) {
     // Merge the two graphs and then launch it
     cudaGraph_t merged_graph =
         cudaGraphCreateCombinedGraph(std::vector<cudaGraph_t>{
@@ -325,7 +351,15 @@ class PyWrapperCUDAGraphConstructor : torch::CustomClassHolder {
     constructor_.getGraphWrapper()->notifyAddedAsChildGraph();
     graph_constructor_rhs.constructor_.getGraphWrapper()
         ->notifyAddedAsChildGraph();
-    return PyLong_AsLong(PyLong_FromVoidPtr(merged_graph));
+    if constexpr (std::is_same<T, long>::value) {
+      return PyLong_AsLong(PyLong_FromVoidPtr(merged_graph));
+    } else if constexpr (std::is_same<T,
+                                      std::shared_ptr<
+                                          PyWrapperCudaGraphWrapper>>::value) {
+      return std::make_shared<PyWrapperCudaGraphWrapper>(merged_graph);
+    } else {
+      throw std::runtime_error("Unsupported return type");
+    }
   }
 
   void dumpGraph(const std::string& result_path) {
@@ -382,6 +416,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       .def("pool", torch::wrap_pybind_function_no_gil(
                        &IntraSMEngine::CUDAGraphCaptureNotifier::pool));
 
+  shared_ptr_class_<IntraSMEngine::PyWrapperCudaGraphWrapper>(
+      m, "CudaGraphWrapper")
+      .def(py::init<long>())
+      .def("notify_added_as_child_graph",
+           &IntraSMEngine::PyWrapperCudaGraphWrapper::notifyAddedAsChildGraph);
+
   shared_ptr_class_<IntraSMEngine::PyWrapperCUDAGraphConstructor>(
       m, "CUDAExperimentalGraphConstructor")
       .def(py::init<>())
@@ -408,7 +448,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
                    notifyAfterInvokingLibraryCall))
       .def("combine_graphs",
            torch::wrap_pybind_function_no_gil(
-               &IntraSMEngine::PyWrapperCUDAGraphConstructor::combineGraphs))
+               &IntraSMEngine::PyWrapperCUDAGraphConstructor::combineGraphs<
+                   long>))
+      .def("execute_graph",
+           torch::wrap_pybind_function_no_gil(
+               &IntraSMEngine::PyWrapperCUDAGraphConstructor::executeGraph))
       .def("dump_graph",
            torch::wrap_pybind_function_no_gil(
                &IntraSMEngine::PyWrapperCUDAGraphConstructor::dumpGraph));
