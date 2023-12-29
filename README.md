@@ -30,3 +30,6 @@ This repository follows the directory structure of [TransformerEngine - Github](
 ## Auto-tuning
 ### Microbenchmark
 We use the [Accel-Sim microbenchmark suites](https://github.com/accel-sim/gpu-app-collection/blob/release/src/cuda/GPU_Microbenchmark/), which is based on ["Dissecting the NVIDIA Volta GPU Architecture via Microbenchmarking"](https://arxiv.org/pdf/1804.06826.pdf)
+
+## Contact
+Kun Wu kunwu2 (at) illinois (dot) edu  [![wakatime](https://wakatime.com/badge/github/K-Wu/intrasm_engine.svg)](https://wakatime.com/badge/github/K-Wu/intrasm_engine)
