@@ -271,32 +271,21 @@ class CUDAGraphCaptureNotifier {
 // std::shared_ptr instead of c10::intrusive_ptr
 class PyWrapperCudaGraphWrapper {
  public:
-  PyWrapperCudaGraphWrapper(cudaGraph_t graph) : graph_wrapper_(graph) {}
+  PyWrapperCudaGraphWrapper(cudaGraph_t graph)
+      : graph_wrapper_(std::make_shared<CudaGraphWrapper>(graph)) {}
   PyWrapperCudaGraphWrapper(long graph)
-      : graph_wrapper_(
-            static_cast<cudaGraph_t>(reinterpret_cast<void*>(graph))) {}
-  cudaGraph_t getGraph() { return graph_wrapper_.get<cudaGraph_t>(); }
-  void notifyAddedAsChildGraph() { graph_wrapper_.notifyAddedAsChildGraph(); }
-  bool isAddedAsChildGraph() { return graph_wrapper_.addedAsChildGraph; }
+      : graph_wrapper_(std::make_shared<CudaGraphWrapper>(
+            static_cast<cudaGraph_t>(reinterpret_cast<void*>(graph)))) {}
+  cudaGraph_t getGraph() { return graph_wrapper_->get<cudaGraph_t>(); }
+  void notifyAddedAsChildGraph() { graph_wrapper_->notifyAddedAsChildGraph(); }
+  bool isAddedAsChildGraph() { return graph_wrapper_->addedAsChildGraph; }
   void executeGraph(cudaStream_t stream) {
-    TORCH_CHECK(
-        graphExec == NULL,
-        "The graph has already been executed. Please wait for the end of the "
-        "graph execution finish and reset graphExec by destroyGraphExec() "
-        "before "
-        "running it again.");
-    cudaGraphInstantiate(&graphExec, graph_wrapper_.get<cudaGraph_t>(), NULL,
-                         NULL, 0);
-    cudaGraphLaunch(graphExec, stream);
+    graph_wrapper_->executeGraph(stream);
   }
-  void destroyGraphExec() {
-    AT_CUDA_CHECK(cudaGraphExecDestroy(graphExec));
-    graphExec = NULL;
-  }
+  void destroyGraphExec() { graph_wrapper_->destroyGraphExec(); }
 
  private:
-  struct CudaGraphWrapper graph_wrapper_;
-  cudaGraphExec_t graphExec = NULL;
+  std::shared_ptr<CudaGraphWrapper> graph_wrapper_;
 };
 
 /// CUDA Graph Constructors Class methods
@@ -340,17 +329,11 @@ class PyWrapperCUDAGraphConstructor {
   }
 
   void executeGraph(cudaStream_t stream) {
-    TORCH_CHECK(
-        graphExec == NULL,
-        "The graph has already been executed. Please wait for the end of the "
-        "graph execution finish and reset graphExec by destroyGraphExec() "
-        "before running it again.");
-    cudaGraphInstantiate(&graphExec, constructor_.getGraph(), NULL, NULL, 0);
-    cudaGraphLaunch(graphExec, stream);
+    constructor_.getGraphWrapper()->executeGraph(stream);
   }
+
   void destroyGraphExec() {
-    AT_CUDA_CHECK(cudaGraphExecDestroy(graphExec));
-    graphExec = NULL;
+    constructor_.getGraphWrapper()->destroyGraphExec();
   }
 
   void notifyBeforeInvokingLibraryCall(long stream) {
@@ -397,7 +380,6 @@ class PyWrapperCUDAGraphConstructor {
 
  private:
   CUDAExperimentalGraphConstructor<cudaStream_t> constructor_;
-  cudaGraphExec_t graphExec = NULL;
 };
 }  // namespace
 }  // namespace IntraSMEngine
