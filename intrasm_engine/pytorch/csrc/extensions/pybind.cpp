@@ -278,9 +278,24 @@ class PyWrapperCudaGraphWrapper {
   cudaGraph_t getGraph() { return graph_wrapper_.get<cudaGraph_t>(); }
   void notifyAddedAsChildGraph() { graph_wrapper_.notifyAddedAsChildGraph(); }
   bool isAddedAsChildGraph() { return graph_wrapper_.addedAsChildGraph; }
+  void executeGraph(cudaStream_t stream) {
+    TORCH_CHECK(
+        graphExec == NULL,
+        "The graph has already been executed. Please synchronize() to wait the "
+        "graph execution finish and reset graphExec before running it again.");
+    cudaGraphInstantiate(&graphExec, graph_wrapper_.get<cudaGraph_t>(), NULL,
+                         NULL, 0);
+    cudaGraphLaunch(graphExec, stream);
+  }
+  void synchronize() {
+    AT_CUDA_CHECK(cudaDeviceSynchronize());
+    AT_CUDA_CHECK(cudaGraphExecDestroy(graphExec));
+    graphExec = NULL;
+  }
 
  private:
   struct CudaGraphWrapper graph_wrapper_;
+  cudaGraphExec_t graphExec = NULL;
 };
 
 /// CUDA Graph Constructors Class methods
@@ -323,8 +338,18 @@ class PyWrapperCUDAGraphConstructor {
     constructor_.join(streams_t, dst_stream_t);
   }
 
-  void executeGraph() {
-    // TODO: implement this
+  void executeGraph(cudaStream_t stream) {
+    TORCH_CHECK(
+        graphExec == NULL,
+        "The graph has already been executed. Please synchronize() to wait the "
+        "graph execution finish and reset graphExec before running it again.");
+    cudaGraphInstantiate(&graphExec, constructor_.getGraph(), NULL, NULL, 0);
+    cudaGraphLaunch(graphExec, stream);
+  }
+  void synchronize() {
+    AT_CUDA_CHECK(cudaDeviceSynchronize());
+    AT_CUDA_CHECK(cudaGraphExecDestroy(graphExec));
+    graphExec = NULL;
   }
 
   void notifyBeforeInvokingLibraryCall(long stream) {
@@ -341,11 +366,14 @@ class PyWrapperCUDAGraphConstructor {
 
   template <typename T>
   T combineGraphs(PyWrapperCUDAGraphConstructor graph_constructor_rhs) {
+    LOG(WARNING)
+        << " The scheme is not working in some cases because it add the two "
+           "graphs as child graphs, which does not support the GEMM graph that "
+           "contains memset node when the kernel is large.";
     // Merge the two graphs and then launch it
-    cudaGraph_t merged_graph =
-        cudaGraphCreateCombinedGraph(std::vector<cudaGraph_t>{
-            constructor_.getGraph(),
-            graph_constructor_rhs.constructor_.getGraph()});
+    cudaGraph_t merged_graph = combineCUDAGraphs(std::vector<cudaGraph_t>{
+        constructor_.getGraph(),
+        graph_constructor_rhs.constructor_.getGraph()});
     // Avoid double freeing the child graph, i.e., the graph of the GEMM
     // partitioned since the destruction of parent graph will destroy it already
     constructor_.getGraphWrapper()->notifyAddedAsChildGraph();
@@ -368,6 +396,7 @@ class PyWrapperCUDAGraphConstructor {
 
  private:
   CUDAExperimentalGraphConstructor<cudaStream_t> constructor_;
+  cudaGraphExec_t graphExec = NULL;
 };
 }  // namespace
 }  // namespace IntraSMEngine
@@ -420,11 +449,33 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       m, "CudaGraphWrapper")
       .def(py::init<long>())
       .def("notify_added_as_child_graph",
-           &IntraSMEngine::PyWrapperCudaGraphWrapper::notifyAddedAsChildGraph);
+           &IntraSMEngine::PyWrapperCudaGraphWrapper::notifyAddedAsChildGraph)
+      .def(
+          "execute_graph",
+          [](IntraSMEngine::PyWrapperCudaGraphWrapper& self, long stream) {
+            void* stream_v = reinterpret_cast<void*>(stream);
+            cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
+            self.executeGraph(stream_t);
+          },
+          py::arg("stream"), py::call_guard<py::gil_scoped_release>())
+      .def("synchronize",
+           torch::wrap_pybind_function_no_gil(
+               &IntraSMEngine::PyWrapperCUDAGraphConstructor::synchronize));
 
   shared_ptr_class_<IntraSMEngine::PyWrapperCUDAGraphConstructor>(
       m, "CUDAExperimentalGraphConstructor")
       .def(py::init<>())
+      .def(
+          "execute_graph",
+          [](IntraSMEngine::PyWrapperCUDAGraphConstructor& self, long stream) {
+            void* stream_v = reinterpret_cast<void*>(stream);
+            cudaStream_t stream_t = static_cast<cudaStream_t>(stream_v);
+            self.executeGraph(stream_t);
+          },
+          py::arg("stream"), py::call_guard<py::gil_scoped_release>())
+      .def("synchronize",
+           torch::wrap_pybind_function_no_gil(
+               &IntraSMEngine::PyWrapperCUDAGraphConstructor::synchronize))
       .def("register_stream",
            torch::wrap_pybind_function_no_gil(
                &IntraSMEngine::PyWrapperCUDAGraphConstructor::registerStream))
@@ -450,9 +501,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
            torch::wrap_pybind_function_no_gil(
                &IntraSMEngine::PyWrapperCUDAGraphConstructor::combineGraphs<
                    long>))
-      .def("execute_graph",
-           torch::wrap_pybind_function_no_gil(
-               &IntraSMEngine::PyWrapperCUDAGraphConstructor::executeGraph))
       .def("dump_graph",
            torch::wrap_pybind_function_no_gil(
                &IntraSMEngine::PyWrapperCUDAGraphConstructor::dumpGraph));
