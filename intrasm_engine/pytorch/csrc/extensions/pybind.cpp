@@ -281,14 +281,15 @@ class PyWrapperCudaGraphWrapper {
   void executeGraph(cudaStream_t stream) {
     TORCH_CHECK(
         graphExec == NULL,
-        "The graph has already been executed. Please synchronize() to wait the "
-        "graph execution finish and reset graphExec before running it again.");
+        "The graph has already been executed. Please wait for the end of the "
+        "graph execution finish and reset graphExec by destroyGraphExec() "
+        "before "
+        "running it again.");
     cudaGraphInstantiate(&graphExec, graph_wrapper_.get<cudaGraph_t>(), NULL,
                          NULL, 0);
     cudaGraphLaunch(graphExec, stream);
   }
-  void synchronize() {
-    AT_CUDA_CHECK(cudaDeviceSynchronize());
+  void destroyGraphExec() {
     AT_CUDA_CHECK(cudaGraphExecDestroy(graphExec));
     graphExec = NULL;
   }
@@ -341,13 +342,13 @@ class PyWrapperCUDAGraphConstructor {
   void executeGraph(cudaStream_t stream) {
     TORCH_CHECK(
         graphExec == NULL,
-        "The graph has already been executed. Please synchronize() to wait the "
-        "graph execution finish and reset graphExec before running it again.");
+        "The graph has already been executed. Please wait for the end of the "
+        "graph execution finish and reset graphExec by destroyGraphExec() "
+        "before running it again.");
     cudaGraphInstantiate(&graphExec, constructor_.getGraph(), NULL, NULL, 0);
     cudaGraphLaunch(graphExec, stream);
   }
-  void synchronize() {
-    AT_CUDA_CHECK(cudaDeviceSynchronize());
+  void destroyGraphExec() {
     AT_CUDA_CHECK(cudaGraphExecDestroy(graphExec));
     graphExec = NULL;
   }
@@ -458,9 +459,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             self.executeGraph(stream_t);
           },
           py::arg("stream"), py::call_guard<py::gil_scoped_release>())
-      .def("synchronize",
-           torch::wrap_pybind_function_no_gil(
-               &IntraSMEngine::PyWrapperCUDAGraphConstructor::synchronize));
+      .def(
+          "destroy_graph_exec",
+          torch::wrap_pybind_function_no_gil(
+              &IntraSMEngine::PyWrapperCUDAGraphConstructor::destroyGraphExec));
 
   shared_ptr_class_<IntraSMEngine::PyWrapperCUDAGraphConstructor>(
       m, "CUDAExperimentalGraphConstructor")
@@ -473,9 +475,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             self.executeGraph(stream_t);
           },
           py::arg("stream"), py::call_guard<py::gil_scoped_release>())
-      .def("synchronize",
+      .def("destroy_graph_exec",
            torch::wrap_pybind_function_no_gil(
-               &IntraSMEngine::PyWrapperCUDAGraphConstructor::synchronize))
+               &IntraSMEngine::PyWrapperCUDAGraphConstructor::destroyGraphExec))
       .def("register_stream",
            torch::wrap_pybind_function_no_gil(
                &IntraSMEngine::PyWrapperCUDAGraphConstructor::registerStream))
