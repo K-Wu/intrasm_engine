@@ -1,4 +1,4 @@
-from intrasm_engine.common.loading_utils import (
+from intrasm_engine.common.cubin_loading_utils import (
     refresh_cuda_symbol_table,
     get_signature_to_mangle_name_map,
 )
@@ -54,7 +54,7 @@ if __name__ == "__main__":
     # import sys
     import os
     import intrasm_engine.common.utils
-    import intrasm_engine.common.loading_utils
+    import intrasm_engine.common.cubin_loading_utils
 
     import os
 
@@ -76,7 +76,7 @@ if __name__ == "__main__":
     )
 
     f = m.get_function(
-        intrasm_engine.common.loading_utils.get_sputnik_signature_to_mangle_name_map()[
+        intrasm_engine.common.cubin_loading_utils.get_sputnik_signature_to_mangle_name_map()[
             "void sputnik::<unnamed>::Kernel<sputnik::SpmmConfig<float, float,"
             " float4, (int)4, (int)8, (int)32, (int)8, (int)4, (int)0,"
             " (bool)0, (int)8>>(int, int, int, const int *, const"
