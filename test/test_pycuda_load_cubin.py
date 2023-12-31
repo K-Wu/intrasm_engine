@@ -1,18 +1,61 @@
+from intrasm_engine.common.loading_utils import (
+    refresh_cuda_symbol_table,
+    get_signature_to_mangle_name_map,
+)
+from intrasm_engine.common.utils import (
+    get_git_root_recursively,
+)
+import os
+
+# These cubins are for test only. We suggest against the loading of these two cubins: Please use the official cutlass python interface insterad.
+TEST_CUBIN_PATHS = {
+    "cutlass_tensorop_canonical": "cpp/small_projects/build_simt_tensorrt_canonical_cubin/build/cubin/tensorop_canonical.cubin",
+    "cutlass_simt_canonical": "cpp/small_projects/build_simt_tensorrt_canonical_cubin/build/cubin/simt_canonical.cubin",
+}
+
+for key in TEST_CUBIN_PATHS:
+    TEST_CUBIN_PATHS[key] = os.path.join(
+        get_git_root_recursively(os.path.dirname(os.path.realpath(__file__))),
+        TEST_CUBIN_PATHS[key],
+    )
+
+
+def refresh_cutlass_tensorop_canonical_symbol_table():
+    refresh_cuda_symbol_table(
+        "cutlass_tensorop_canonical_symbol_table.txt",
+        TEST_CUBIN_PATHS["cutlass_tensorop_canonical"],
+    )
+
+
+def get_cutlass_tensorop_canonical_signature_to_mangle_name_map() -> (
+    dict[str, str]
+):
+    return get_signature_to_mangle_name_map(
+        "cutlass_tensorop_canonical_symbol_table.txt"
+    )
+
+
+def refresh_cutlass_simt_canonical_symbol_table():
+    refresh_cuda_symbol_table(
+        "cutlass_simt_canonical_symbol_table.txt",
+        TEST_CUBIN_PATHS["cutlass_simt_canonical"],
+    )
+
+
+def get_cutlass_simt_canonical_signature_to_mangle_name_map() -> (
+    dict[str, str]
+):
+    return get_signature_to_mangle_name_map(
+        "cutlass_simt_canonical_symbol_table.txt"
+    )
+
+
 if __name__ == "__main__":
     # import sys
     import os
     import intrasm_engine.common.utils
     import intrasm_engine.common.loading_utils
 
-    # sys.path.append(
-    #     os.path.join(
-    #         intrasm_engine.common.utils.get_git_root_recursively(
-    #             os.path.dirname(os.path.realpath(__file__)),
-    #         ),
-    #         "intrasm_engine/3rdparty/SparTA",
-    #     )
-    # )
-    # import sparta  # Initialize pycuda and torch
     import os
 
     import pycuda.autoprimaryctx  # Initialize pycuda
@@ -57,3 +100,6 @@ if __name__ == "__main__":
         block=(32, 1, 1),
         grid=(1, 1, 1),
     )
+
+    refresh_cutlass_simt_canonical_symbol_table()
+    refresh_cutlass_tensorop_canonical_symbol_table()

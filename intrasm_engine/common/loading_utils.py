@@ -57,9 +57,7 @@ def get_signature_to_mangle_name_map(
 
 
 CUBIN_PATHS: dict[str, str] = {
-    "sputnik_cuda_spmm": "intrasm_engine/3rdparty/sputnik/build/sputnik/spmm/CMakeFiles/cuda_spmm.dir/cuda_spmm.cu.cubin",
-    "cutlass_tensorop_canonical": "cpp/small_projects/build_simt_tensorrt_canonical_cubin/build/cubin/tensorop_canonical.cubin",
-    "cutlass_simt_canonical": "cpp/small_projects/build_simt_tensorrt_canonical_cubin/build/cubin/simt_canonical.cubin",
+    "sputnik_cuda_spmm": "intrasm_engine/3rdparty/sputnik/build/sputnik/spmm/CMakeFiles/cuda_spmm.dir/cuda_spmm.cu.cubin"
 }
 for key in CUBIN_PATHS:
     CUBIN_PATHS[key] = os.path.join(
@@ -81,38 +79,6 @@ def get_sputnik_signature_to_mangle_name_map() -> dict[str, str]:
     )
 
 
-def refresh_cutlass_tensorop_canonical_symbol_table():
-    refresh_cuda_symbol_table(
-        "cutlass_tensorop_canonical_symbol_table.txt",
-        CUBIN_PATHS["cutlass_tensorop_canonical"],
-    )
-
-
-def get_cutlass_tensorop_canonical_signature_to_mangle_name_map() -> (
-    dict[str, str]
-):
-    return get_signature_to_mangle_name_map(
-        "cutlass_tensorop_canonical_symbol_table.txt"
-    )
-
-
-def refresh_cutlass_simt_canonical_symbol_table():
-    refresh_cuda_symbol_table(
-        "cutlass_simt_canonical_symbol_table.txt",
-        CUBIN_PATHS["cutlass_simt_canonical"],
-    )
-
-
-def get_cutlass_simt_canonical_signature_to_mangle_name_map() -> (
-    dict[str, str]
-):
-    return get_signature_to_mangle_name_map(
-        "cutlass_simt_canonical_symbol_table.txt"
-    )
-
-
 if __name__ == "__main__":
     refresh_sputnik_cuda_spmm_symbol_table()
     print(get_sputnik_signature_to_mangle_name_map())
-    refresh_cutlass_simt_canonical_symbol_table()
-    refresh_cutlass_tensorop_canonical_symbol_table()
