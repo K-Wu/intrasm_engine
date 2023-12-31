@@ -19,13 +19,25 @@ pip install -e .
 ### Pybind Resource Management
 [Smart Pointers](https://pybind11.readthedocs.io/en/stable/advanced/smart_ptrs.html)
 
-## Directory Structure
+### Directory Structure
 This repository follows the directory structure of [TransformerEngine - Github](github.com/NVIDIA/TransformerEngine/).
 
 ## Code Health Badges
 [![CodeFactor](https://www.codefactor.io/repository/github/k-wu/intrasm_engine/badge?s=749489c3b14056d2ece1446c9f6f3e55572069b3)](https://www.codefactor.io/repository/github/k-wu/intrasm_engine)
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/efbb131ba609458c8a586ea63c2534e2)](https://app.codacy.com?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
 [![DeepSource](https://app.deepsource.com/gh/K-Wu/intrasm_engine.svg/?label=active+issues&show_trend=true&token=OE3XZsUS8QPEMWILgPiJbtGG)](https://app.deepsource.com/gh/K-Wu/intrasm_engine/)
+
+## CUDA Library Determinism
+We don't preserve cuBLAS determinism for now.
+
+cuBLAS has the determinism issue, which requires either 1) one handle per stream or 2) one workspace per stream. In cupy, no workspace setting API is exposed, and each device got a default handle. We also need to check if there is any necessary additional handling in PyTorch to guarantee determinism.
+
+No reported issue about cusparse determinism, and I guess the reason is it is deterministic because it has a specific bufferSize allocation operation for each SpMM operation.
+
+### Reference
+[Is a pool of cuBLAS handles required for stream parallelism? #4676](https://github.com/cupy/cupy/issues/4676)
+[cuBLAS reproducibility](https://docs.nvidia.com/cuda/cublas/index.html#cublasApi_reproducibility)
+[cuSparse documentation](https://docs.nvidia.com/cuda/cusparse)
 
 ## Auto-tuning
 ### Microbenchmark
