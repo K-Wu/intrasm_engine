@@ -21,6 +21,9 @@ def test_cupy_handle():
     import torch
     import cupy
 
+    ## Torch stream -> Cupy stream
+    # To set cupy stream during cupy computation, use cupy.cuda.ExternalStream to import the stream from PyTorch. Reference: https://docs.cupy.dev/en/stable/reference/generated/cupy.cuda.ExternalStream.html#cupy-cuda-externalstream
+    # An example of setting up cupy-torch interoperability: https://github.com/cupy/cupy/blob/8368780c911b7a7fb7b881ec57ac4f53732c083f/docs/source/user_guide/interoperability.rst#cuda-stream-pointers
     ts = torch.cuda.Stream()
     cs = cupy.cuda.ExternalStream(ts.cuda_stream)
     print(
