@@ -27,7 +27,13 @@ This repository follows the directory structure of [TransformerEngine - Github](
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/efbb131ba609458c8a586ea63c2534e2)](https://app.codacy.com?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
 [![DeepSource](https://app.deepsource.com/gh/K-Wu/intrasm_engine.svg/?label=active+issues&show_trend=true&token=OE3XZsUS8QPEMWILgPiJbtGG)](https://app.deepsource.com/gh/K-Wu/intrasm_engine/)
 
-## CUDA Library Determinism
+## Library Supports
+### Multistream
+We have incorporated stream switch support in [our custom SparTa repo](https://github.com/K-Wu/SparTA).
+
+For Cutlass, the Python interface does have stream support, but it is not exposed to the top-level API. We filed a [PR](https://github.com/NVIDIA/cutlass/pull/1287) to expose the stream support to the top-level API.
+
+### CUDA Library Determinism
 We don't preserve cuBLAS determinism for now.
 
 cuBLAS has the determinism issue, which requires either 1) one handle per stream or 2) one workspace per stream. In cupy, no workspace setting API is exposed, and each device got a default handle. We also need to check if there is any necessary additional handling in PyTorch to guarantee determinism.
