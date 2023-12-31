@@ -213,12 +213,17 @@ def setup_requirements() -> Tuple[List[str], List[str], List[str]]:
     """
 
     # Common requirements
-    setup_reqs: List[str] = ["GitPython", "cuda-python", "pycuda"]
+    setup_reqs: List[str] = [
+        "GitPython",
+        "cuda-python",
+        "pycuda",
+        "nvidia-cutlass",
+    ]
     install_reqs: List[str] = ["pydantic"]
     test_reqs: List[str] = [
         "pytest",
         # TODO: enable the following and test if it works
-        # "SparTA @ git+ssh://git@github.com:K-Wu/SparTA.git",
+        # "SparTA @ git+ssh://git@github.com:K-Wu/SparTA@main",
     ]
 
     def add_unique(l: List[str], vals: Union[str, List[str]]) -> None:
