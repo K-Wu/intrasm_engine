@@ -8,11 +8,11 @@ import pycuda
 class TorchCUDAGraphConstructor:
     # torch.cuda.Stream(device=None)
 
-    self.device: torch.device
-    self.registeredPyCudaStreams: list[pycuda.driver.Stream]
-    self.registeredStreams: list[torch.cuda.Stream]
-    self.notifier: iex.CUDAGraphCaptureNotifier
-    self.constructor: iex.CUDAExperimentalGraphConstructor
+    device: torch.device
+    registeredPyCudaStreams: list[pycuda.driver.Stream]
+    registeredStreams: list[torch.cuda.StreamContext]
+    notifier: iex.CUDAGraphCaptureNotifier
+    constructor: iex.CUDAExperimentalGraphConstructor
     # No need to store combined graph: proper GC is maintained by shared_ptr
 
     def __init__(self, device=torch.device("cuda")):
@@ -25,10 +25,12 @@ class TorchCUDAGraphConstructor:
         self.constructor = iex.CUDAExperimentalGraphConstructor(self.notifier)
         self.constructor.register_stream(self.registeredStreams[-1])
 
-    def register_new_stream(self) -> torch.cuda.Stream:
+    def register_new_stream(self) -> torch.cuda.StreamContext:
         pycuda_stream = pycuda.driver.Stream()
-        stream = torch.cuda.Stream(
-            device=self.device, stream_ptr=pycuda_stream.handle
+        stream = torch.cuda.stream(
+            torch.cuda.Stream(
+                device=self.device, stream_ptr=pycuda_stream.handle
+            )
         )
         self.registeredPyCudaStreams.append(pycuda_stream)
         self.registeredStreams.append(stream)
@@ -37,7 +39,7 @@ class TorchCUDAGraphConstructor:
 
     def register_new_streams(
         self, num_streams: int
-    ) -> list[torch.cuda.Stream]:
+    ) -> list[torch.cuda.StreamContext]:
         streams = []
         for idx in range(num_streams):
             streams.append(self.register_new_stream())
@@ -45,7 +47,9 @@ class TorchCUDAGraphConstructor:
 
     def capture_library_call_begin(self):
         self.notifier.capture_begin()
-        assert torch.cuda.current_stream() in self.registeredStreams
+        assert torch.cuda.current_stream() in {
+            context.stream for context in self.registeredStreams
+        }
         self.constructor.notify_before_invoking_library_call(
             torch.cuda.current_stream().cuda_stream
         )
