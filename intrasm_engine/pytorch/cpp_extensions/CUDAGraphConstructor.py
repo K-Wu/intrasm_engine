@@ -1,7 +1,7 @@
 import intrasm_engine
 import intrasm_engine_extensions as iex
 import torch
-from typing import NoneType
+import pycuda
 
 
 # CUDAGraphConstructor + CUDAGraphCaptureNotifier
@@ -9,24 +9,28 @@ class TorchCUDAGraphConstructor:
     # torch.cuda.Stream(device=None)
 
     self.device: torch.device
+    self.registeredPyCudaStreams: list[pycuda.driver.Stream]
     self.registeredStreams: list[torch.cuda.Stream]
     self.notifier: iex.CUDAGraphCaptureNotifier
     self.constructor: iex.CUDAExperimentalGraphConstructor
-    # Store combined graphs to avoid GC
-    self.combined_graph: list[TorchCUDAGraphConstructor]
+    # No need to store combined graph: proper GC is maintained by shared_ptr
 
     def __init__(self, device=torch.device("cuda")):
         self.device = device
+        self.registeredPyCudaStreams = [
+            intrasm_engine.current_pycuda_stream[self.device]
+        ]
         self.registeredStreams = [intrasm_engine.current_stream[self.device]]
         self.notifier = iex.CUDAGraphCaptureNotifier()
         self.constructor = iex.CUDAExperimentalGraphConstructor(self.notifier)
         self.constructor.register_stream(self.registeredStreams[-1])
 
-    def register_new_stream(
-        self, stream: torch.cuda.Stream | NoneType = None
-    ) -> torch.cuda.Stream:
-        if stream is None:
-            stream = torch.cuda.Stream(device=self.device)
+    def register_new_stream(self) -> torch.cuda.Stream:
+        pycuda_stream = pycuda.driver.Stream()
+        stream = torch.cuda.Stream(
+            device=self.device, stream_ptr=pycuda_stream.handle
+        )
+        self.registeredPyCudaStreams.append(pycuda_stream)
         self.registeredStreams.append(stream)
         self.constructor.register_stream(self.registeredStreams[-1])
         return stream
@@ -34,11 +38,9 @@ class TorchCUDAGraphConstructor:
     def register_new_streams(
         self, num_streams: int
     ) -> list[torch.cuda.Stream]:
-        streams = [
-            torch.cuda.Stream(device=self.device) for _ in range(num_streams)
-        ]
-        for stream in streams:
-            self.register_new_stream(stream)
+        streams = []
+        for idx in range(num_streams):
+            streams.append(self.register_new_stream())
         return streams
 
     def capture_library_call_begin(self):

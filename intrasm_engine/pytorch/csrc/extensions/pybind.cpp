@@ -283,6 +283,10 @@ class PyWrapperCudaGraphWrapper {
     graph_wrapper_->executeGraph(stream);
   }
   void destroyGraphExec() { graph_wrapper_->destroyGraphExec(); }
+  void addGraphAsChildNode(PyWrapperCudaGraphWrapper& child_graph) {
+    graph_wrapper_->addGraphAsChildNode((*child_graph.getGraphWrapper()));
+  }
+  std::shared_ptr<CudaGraphWrapper> getGraphWrapper() { return graph_wrapper_; }
 
  private:
   std::shared_ptr<CudaGraphWrapper> graph_wrapper_;
@@ -348,18 +352,30 @@ class PyWrapperCUDAGraphConstructor {
     constructor_.notifyAfterInvokingLibraryCall(stream_t);
   }
 
+  void addGraphAsChildNode(PyWrapperCudaGraphWrapper& child_graph) {
+    constructor_.getGraphWrapper()->addGraphAsChildNode(
+        (*child_graph.getGraphWrapper()));
+  }
+
+  void addGraphAsChildNode(PyWrapperCUDAGraphConstructor& child_graph) {
+    constructor_.getGraphWrapper()->addGraphAsChildNode(
+        (*child_graph.constructor_.getGraphWrapper()));
+  }
+
   template <typename T>
-  T combineGraphs(PyWrapperCUDAGraphConstructor graph_constructor_rhs) {
+  T combineGraphs(PyWrapperCUDAGraphConstructor& graph_constructor_rhs) {
     LOG(WARNING)
         << " The scheme is not working in some cases because it add the two "
-           "graphs as child graphs, which does not support the GEMM graph that "
+           "graphs as child graphs, which does not support the GEMM graph "
+           "that "
            "contains memset node when the kernel is large.";
     // Merge the two graphs and then launch it
     cudaGraph_t merged_graph = combineCUDAGraphs(std::vector<cudaGraph_t>{
         constructor_.getGraph(),
         graph_constructor_rhs.constructor_.getGraph()});
     // Avoid double freeing the child graph, i.e., the graph of the GEMM
-    // partitioned since the destruction of parent graph will destroy it already
+    // partitioned since the destruction of parent graph will destroy it
+    // already
     constructor_.getGraphWrapper()->notifyAddedAsChildGraph();
     graph_constructor_rhs.constructor_.getGraphWrapper()
         ->notifyAddedAsChildGraph();
@@ -433,6 +449,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       .def(py::init<long>())
       .def("notify_added_as_child_graph",
            &IntraSMEngine::PyWrapperCudaGraphWrapper::notifyAddedAsChildGraph)
+      .def("add_graph_as_child_node",
+           torch::wrap_pybind_function_no_gil(
+               &IntraSMEngine::PyWrapperCudaGraphWrapper::addGraphAsChildNode))
       .def(
           "execute_graph",
           [](IntraSMEngine::PyWrapperCudaGraphWrapper& self, long stream) {
@@ -481,6 +500,20 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
            torch::wrap_pybind_function_no_gil(
                &IntraSMEngine::PyWrapperCUDAGraphConstructor::
                    notifyAfterInvokingLibraryCall))
+      .def("add_graph_as_child_node",
+           torch::wrap_pybind_function_no_gil(
+               static_cast<void (
+                   IntraSMEngine::PyWrapperCUDAGraphConstructor::*)(
+                   IntraSMEngine::PyWrapperCudaGraphWrapper&)>(
+                   &IntraSMEngine::PyWrapperCUDAGraphConstructor::
+                       addGraphAsChildNode)))
+      .def("add_graph_as_child_node",
+           torch::wrap_pybind_function_no_gil(
+               static_cast<void (
+                   IntraSMEngine::PyWrapperCUDAGraphConstructor::*)(
+                   IntraSMEngine::PyWrapperCUDAGraphConstructor&)>(
+                   &IntraSMEngine::PyWrapperCUDAGraphConstructor::
+                       addGraphAsChildNode)))
       .def("combine_graphs",
            torch::wrap_pybind_function_no_gil(
                &IntraSMEngine::PyWrapperCUDAGraphConstructor::combineGraphs<
