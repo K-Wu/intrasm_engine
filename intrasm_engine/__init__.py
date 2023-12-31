@@ -36,7 +36,8 @@ def initialize_current_streams():
         this.current_stream[torch.device(f"cuda:{i}")] = torch.cuda.Stream(
             stream_ptr=this.current_pycuda_stream[
                 torch.device(f"cuda:{i}")
-            ].handle
+            ].handle,
+            device="cuda:{i}",
         )
 
     torch.cuda.set_device(0)
@@ -47,7 +48,7 @@ def initialize_current_streams():
     # https://github.com/openai/triton/blob/a767ca41e189988740d35cbb9aecd873c4874a62/python/triton/runtime/driver.py#L37
 
     ## Cupy
-    # To set cupy stream during cupy computation, use cupy.cuda.ExternalStream. Reference: https://docs.cupy.dev/en/stable/reference/generated/cupy.cuda.ExternalStream.html#cupy-cuda-externalstream
+    # To set cupy stream during cupy computation, use cupy.cuda.ExternalStream to import the stream from PyTorch. Reference: https://docs.cupy.dev/en/stable/reference/generated/cupy.cuda.ExternalStream.html#cupy-cuda-externalstream
     # An example of setting up cupy-torch interoperability: https://github.com/cupy/cupy/blob/8368780c911b7a7fb7b881ec57ac4f53732c083f/docs/source/user_guide/interoperability.rst#cuda-stream-pointers
 
 
