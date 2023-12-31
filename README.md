@@ -1,16 +1,15 @@
+# Intra-Streaming-Multiprocessor (IntraSM) Engine
 
-## Development
+
+## Contributing
+### Setuptools Development Mode
 This repository uses setup.py to build the package. To develop, install the package in editable mode:
 ```
 pip install -e .
 ```
 
-### Reference
-[TransformerEngine/transformer_engine - Github](https://github.com/NVIDIA/TransformerEngine/blob/main/transformer_engine/)
-
 [Python setup.py develop vs install - StackOverflow](https://stackoverflow.com/a/19048754)
 
-## Contributing
 ### Pybind Overloading
 [Binding Disambiguation - pybind11 Documentation](https://pybind11.readthedocs.io/en/stable/classes.html#:~:text=We%20can%20disambiguate%20by%20casting%20them%20to%20function%20pointers)
 
@@ -20,7 +19,7 @@ pip install -e .
 [Smart Pointers](https://pybind11.readthedocs.io/en/stable/advanced/smart_ptrs.html)
 
 ### Directory Structure
-This repository follows the directory structure of [TransformerEngine - Github](github.com/NVIDIA/TransformerEngine/).
+This repository follows the directory structure of [TransformerEngine - Github](https://github.com/NVIDIA/TransformerEngine/).
 
 ## Code Health Badges
 [![CodeFactor](https://www.codefactor.io/repository/github/k-wu/intrasm_engine/badge?s=749489c3b14056d2ece1446c9f6f3e55572069b3)](https://www.codefactor.io/repository/github/k-wu/intrasm_engine)
