@@ -218,12 +218,20 @@ def setup_requirements() -> Tuple[List[str], List[str], List[str]]:
         "cuda-python",
         "pycuda",
         "nvidia-cutlass",
+        (
+            "xformers @"
+            " git+https://github.com/facebookresearch/xformers.git@main#egg=xformers"
+        ),
+        (
+            "torchknickknacks @"
+            " git+https://github.com/AlGoulas/torchknickknacks.git"
+        )
+        # TODO: enable the following and test if it works
+        # "SparTA @ git+ssh://git@github.com:K-Wu/SparTA@main",
     ]
     install_reqs: List[str] = ["pydantic"]
     test_reqs: List[str] = [
         "pytest",
-        # TODO: enable the following and test if it works
-        # "SparTA @ git+ssh://git@github.com:K-Wu/SparTA@main",
     ]
 
     def add_unique(l: List[str], vals: Union[str, List[str]]) -> None:
@@ -486,6 +494,16 @@ def setup_pytorch_extension() -> setuptools.Extension:
 
 
 def main():
+    import os
+
+    if "MAX_JOBS" not in os.environ:
+        print(
+            "WARNING: MAX_JOBS is not set, defaulting to 4. This is vital to"
+            " ensure that the dependency xformer won't exaust the memory of"
+            " your machine during installation."
+        )
+        os.environ["MAX_JOBS"] = "4"
+
     # Submodules to install
     packages = setuptools.find_packages(
         include=["intrasm_engine", "intrasm_engine.*"],
