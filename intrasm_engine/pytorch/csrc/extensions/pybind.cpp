@@ -6,6 +6,10 @@
 
 #include "../extensions.h"
 
+// Define CUDAGraphConstructor
+#include <helper_CUDAGraphConstructor.cu.h>
+#include <helper_cuda_graph.cu.h>
+
 namespace IntraSMEngine {
 
 namespace {

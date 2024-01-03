@@ -8,3 +8,6 @@ __pycache__/
 data
 data/
 intrasm_engine/common/*.txt
+CutlassJit/
+*.db
+.eggs/

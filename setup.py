@@ -443,6 +443,7 @@ def setup_pytorch_extension() -> setuptools.Extension:
         root_path / "intrasm_engine" / "pytorch" / "csrc",
         root_path / "intrasm_engine",
         root_path / ".." / "cpp" / "include",
+        root_path / "3rdparty" / "sputnik",
         # root_path / "3rdparty" / "cudnn-frontend" / "include",
     ]
 
