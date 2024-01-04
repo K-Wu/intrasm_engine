@@ -420,9 +420,17 @@ def _all_files_in_dir(path: Path) -> List[Path]:
     return list(path.iterdir())
 
 
-def _all_cpp_files_in_dir(path: Path) -> List[Path]:
+def _all_files_with_suffix_in_dir(path: Path, suffix: str) -> List[Path]:
     filenames = _all_files_in_dir(path)
-    return [filename for filename in filenames if filename.suffix == ".cpp"]
+    return [filename for filename in filenames if filename.suffix == suffix]
+
+
+def _all_cpp_files_in_dir(path: Path) -> List[Path]:
+    return _all_files_with_suffix_in_dir(path, ".cpp")
+
+
+def _all_cu_files_in_dir(path: Path) -> List[Path]:
+    return _all_files_with_suffix_in_dir(path, ".cu")
 
 
 def setup_pytorch_extension() -> setuptools.Extension:
@@ -431,11 +439,15 @@ def setup_pytorch_extension() -> setuptools.Extension:
     # Source files
     src_dir: Path = root_path / "intrasm_engine" / "pytorch" / "csrc"
     extensions_dir: Path = src_dir / "extensions"
-    sources = [
-        src_dir / "MyStackClass.cpp",
-        # src_dir / "common.cu",
-        # src_dir / "ts_fp8_op.cpp",
-    ] + _all_cpp_files_in_dir(extensions_dir)
+    sources = (
+        [
+            src_dir / "MyStackClass.cpp",
+            # src_dir / "common.cu",
+            # src_dir / "ts_fp8_op.cpp",
+        ]
+        + _all_cpp_files_in_dir(extensions_dir)
+        + _all_cu_files_in_dir(extensions_dir)
+    )
 
     # Header files
     include_dirs = [

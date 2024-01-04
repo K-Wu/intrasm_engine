@@ -270,7 +270,9 @@ struct SpmmKernel2 {
     // Create a storer for the output matrix.
     OutputTile output_tile_storer(m_index, n_index, n, threadIdx.x,
                                   output_fragment, out + blockIdx.z * m * n);
-    sputnik::MyStore(output_tile_storer, predicates_n);
+    sputnik::MyStore<typename Config::DenseValue, Config::kBlockItemsX,
+                     Config::kBlockWidth, true>(output_tile_storer,
+                                                predicates_n);
   }
 };
 

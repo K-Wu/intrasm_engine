@@ -18,7 +18,7 @@ def get_intrasm_path() -> str:
     return result[result.index("Location") + 1].strip()
 
 
-def _load_library():
+def _load_sputnik_library():
     """Load shared library with IntraSM Engine C framework-agnostic extensions"""
 
     system = platform.system()
@@ -30,11 +30,13 @@ def _load_library():
         extension = "dll"
     else:
         raise RuntimeError(f"Unsupported operating system ({system})")
-    lib_name = "libintrasm_engine." + extension
+    lib_name = "libsputnik." + extension
     dll_path = get_intrasm_path()
-    dll_path = os.path.join(dll_path, lib_name)
+    dll_path = os.path.join(
+        dll_path, "3rdparty", "sputnik", "build", "sputnik", lib_name
+    )
 
     return ctypes.CDLL(dll_path, mode=ctypes.RTLD_GLOBAL)
 
 
-# _INTRASM_LIB_CTYPES = _load_library()
+# _SPUTNIK_LIB_CTYPES = _load_sputnik_library()
