@@ -177,8 +177,11 @@ class CUDAGraphCaptureNotifier {
     // capture had already started.
     c10::cuda::CUDACachingAllocator::beginAllocateStreamToPool(
         capture_dev_, capture_stream_, mempool_id_);
+  }
 
+  void assert_capture_has_begun() {
     cudaStreamCaptureStatus status;
+    auto stream = at::cuda::getCurrentCUDAStream();
     AT_CUDA_CHECK(cudaStreamGetCaptureInfo(stream, &status, &capture_id_));
     TORCH_INTERNAL_ASSERT(
         status == cudaStreamCaptureStatus::cudaStreamCaptureStatusActive);
@@ -446,7 +449,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       .def("replay", torch::wrap_pybind_function_no_gil(
                          &IntraSMEngine::CUDAGraphCaptureNotifier::replay))
       .def("pool", torch::wrap_pybind_function_no_gil(
-                       &IntraSMEngine::CUDAGraphCaptureNotifier::pool));
+                       &IntraSMEngine::CUDAGraphCaptureNotifier::pool))
+      .def("assert_capture_has_begun",
+           torch::wrap_pybind_function_no_gil(
+               &IntraSMEngine::CUDAGraphCaptureNotifier::
+                   assert_capture_has_begun));
 
   shared_ptr_class_<IntraSMEngine::PyWrapperCudaGraphWrapper>(
       m, "CudaGraphWrapper")

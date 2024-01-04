@@ -39,4 +39,9 @@ def _load_sputnik_library():
     return ctypes.CDLL(dll_path, mode=ctypes.RTLD_GLOBAL)
 
 
+# Hack to get cudaStreamBeginCaptureToGraph while torch is prebuilt with CUDA 12.1
+_CUDART_123_LIB_CTYPES = ctypes.CDLL(
+    "/usr/local/cuda-12/lib64/libcudart.so", mode=ctypes.RTLD_GLOBAL
+)
+
 # _SPUTNIK_LIB_CTYPES = _load_sputnik_library()

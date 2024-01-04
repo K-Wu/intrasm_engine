@@ -1,5 +1,4 @@
 """This is the code from https://github.com/NVIDIA/cutlass/blob/8236f30675bbe98f81d11c05764b77bfcb25b8cc/examples/python/02_pytorch_extension_grouped_gemm.ipynb.
-We omitted the PyTorch CUDA extension emission part.
 We use the code here to demonstrate how to use cutlass python interface, and test if the cutlass python interface is working.
 """
 
