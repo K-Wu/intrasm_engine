@@ -6,6 +6,7 @@ from intrasm_engine.pytorch.cpp_extensions.cuda_graph_constructor import (
 )
 
 from intrasm_engine.common import cutlass_utils
+from cuda import cuda
 
 
 def test_replay_torch():
@@ -44,8 +45,7 @@ def test_replay_cutlass():
 
     # Utility function to generate `problems` GEMMs of random sizes
     def generate_problems(problems):
-        valid_sizes = [256]
-        # valid_sizes = [128, 256, 512, 1024]
+        valid_sizes = [128, 256, 512, 1024]
         As, Bs, Cs, Ds = [], [], [], []
         for _ in range(problems):
             M, N, K = [random.choice(valid_sizes) for _ in range(3)]
@@ -63,17 +63,17 @@ def test_replay_cutlass():
         Ds,
     ) = generate_problems(50)
 
-    As_device = torch.stack(As).to("cuda")
-    Bs_device = torch.stack(Bs).to("cuda")
-    Cs_device = torch.stack(Cs).to("cuda")
-    Ds_device = torch.stack(Ds).to("cuda")
     arguments = cutlass_utils.prepare_GemmGroupedArguments(
-        plan, As_device, Bs_device, Cs_device, Ds_device, print_module=True
+        plan, As, Bs, Cs, Ds, print_module=True
+    )
+    arguments.stream = cuda.CUstream(
+        init_value=torch.cuda.current_stream().cuda_stream
     )
     constructor = TorchCUDAGraphConstructor()
     constructor.capture_library_call_begin()
     plan.operation.run(arguments)
     constructor.capture_library_call_end()
+
     constructor.execute_graph()
     constructor.synchronize()
     Ds_torch = [a @ b for a, b in zip(As, Bs)]
