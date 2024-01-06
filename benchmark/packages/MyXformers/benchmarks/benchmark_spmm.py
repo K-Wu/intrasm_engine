@@ -41,10 +41,12 @@ def bench_spmm(configs):
     results = []
 
     for (B, M, K), prob in configs:
-        a = torch.rand(B, M, K, device=device)
         b = torch.rand(B, M, K, device=device)
 
-        a_sparse = _create_random_sparsity(a, prob, divisible_by=16)
+        a_sparse = _create_random_sparsity(
+            torch.rand(1, M, K), prob, divisible_by=16
+        )
+        a_sparse = a_sparse.repeat(B, 1, 1)
         bb = b
         a_sparse = SparseCS(a_sparse, device)
         row_indices = a_sparse.row_indices
