@@ -1,4 +1,4 @@
-# Directory Structure
+## Directory Structure
 This folder stores the files common to pytorch and other frameworks, e.g., JAX. The build process builds a shared library for the common files and links it when building the pytorch extension. During python runtime, the shared library in this common folder will be loaded by ctypes via RTLD_GLOBAL mode.
 
 ## Reference 
