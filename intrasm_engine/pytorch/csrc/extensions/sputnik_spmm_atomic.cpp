@@ -3,17 +3,31 @@
 // TODO investigate misaligned address errors in values ptr
 #define CONCAT_ID_(prefix, id) prefix##id
 #define CONCAT_ID(prefix, id) CONCAT_ID_(prefix, id)
-#define DEFINE_KERNEL_LAUNCHER(name, id)                                       \
+
+void check_values_with_weight_reuse_enabled(const at::Tensor& b,
+                                            const at::Tensor& values,
+                                            const at::Tensor& column_indices) {
+  TORCH_CHECK(values.dim() == 1);
+  TORCH_CHECK(values.size(0) == column_indices.size(0));
+}
+
+void check_values_with_weight_reuse_disabled(const at::Tensor& b,
+                                             const at::Tensor& values,
+                                             const at::Tensor& column_indices) {
+  TORCH_CHECK(values.dim() == 2);
+  TORCH_CHECK(b.size(0) == values.size(0));
+  TORCH_CHECK(values.size(1) == column_indices.size(0));
+}
+
+#define DEFINE_KERNEL_LAUNCHER(name, id, value_check_func)                     \
   at::Tensor name(const at::Tensor& b, const at::Tensor& row_indices,          \
                   const at::Tensor& values, const at::Tensor& row_offsets,     \
                   const at::Tensor& column_indices, int64_t m) {               \
     TORCH_CHECK(b.dim() == 3);                                                 \
-    TORCH_CHECK(values.dim() == 2);                                            \
-    TORCH_CHECK(b.size(0) == values.size(0));                                  \
+    value_check_func(b, values, column_indices);                               \
     TORCH_CHECK(row_indices.dim() == 1);                                       \
     TORCH_CHECK(row_offsets.dim() == 1);                                       \
     TORCH_CHECK(column_indices.dim() == 1);                                    \
-    TORCH_CHECK(values.size(1) == column_indices.size(0));                     \
                                                                                \
     TORCH_CHECK(b.is_cuda(), "b must be a CUDA tensor");                       \
     TORCH_CHECK(row_indices.is_cuda(), "row_indices must be a CUDA tensor");   \
@@ -70,8 +84,10 @@
     return output;                                                             \
   }
 
-DEFINE_KERNEL_LAUNCHER(spmm_sputnik_atomic, 2)
-DEFINE_KERNEL_LAUNCHER(spmm_sputnik_reuse_weight, 3)
+DEFINE_KERNEL_LAUNCHER(spmm_sputnik_atomic, 2,
+                       check_values_with_weight_reuse_disabled)
+DEFINE_KERNEL_LAUNCHER(spmm_sputnik_reuse_weight, 3,
+                       check_values_with_weight_reuse_enabled)
 
 TORCH_LIBRARY(iex_ops, m) {
   m.def("spmm_sputnik_atomic", &spmm_sputnik_atomic);
