@@ -4,13 +4,16 @@
 #include "common.h"
 
 namespace my_sputnik {
+#define CONCAT_ID_(prefix, id) prefix##id
+#define CONCAT_ID(prefix, id) CONCAT_ID_(prefix, id)
+#define DECLARE_KERNEL_LAUNCHER(name, id)                                     \
+  cudaError_t CONCAT_ID(name, id)(                                            \
+      int m, int k, int n, int nonzeros, const int* __restrict__ row_indices, \
+      const float* __restrict__ values, const int* __restrict__ row_offsets,  \
+      const int* __restrict__ column_indices,                                 \
+      const float* __restrict__ dense_matrix,                                 \
+      float* __restrict__ output_matrix, cudaStream_t stream, int batch_size);
 
-cudaError_t CudaSpmm2(int m, int k, int n, int nonzeros,
-                      const int* __restrict__ row_indices,
-                      const float* __restrict__ values,
-                      const int* __restrict__ row_offsets,
-                      const int* __restrict__ column_indices,
-                      const float* __restrict__ dense_matrix,
-                      float* __restrict__ output_matrix, cudaStream_t stream,
-                      int batch_size);
-}
+DECLARE_KERNEL_LAUNCHER(CudaSpmm, 2)
+DECLARE_KERNEL_LAUNCHER(CudaSpmm, 3)
+}  // namespace my_sputnik
