@@ -4,3 +4,7 @@
 [submodule "3rdparty/sputnik"]
 	path = 3rdparty/sputnik
 	url = git@github.com:K-Wu/sputnik_experimental.git
+[submodule "3rdparty/SparTAArtifact"]
+	path = 3rdparty/SparTAArtifact
+	url = https://github.com/microsoft/SparTA
+	branch = sparta_artifact
