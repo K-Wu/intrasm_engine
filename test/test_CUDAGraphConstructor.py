@@ -7,20 +7,39 @@ from intrasm_engine.pytorch.cpp_extensions.cuda_graph_constructor import (
 
 from intrasm_engine.common import cutlass_utils
 from cuda import cuda
+from typing import Callable
 
 
-def test_replay_torch():
+def test_replay_torch(
+    torch_func: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+):
     # intrasm_engine.pytorch.cpp_extensions.cuda_graph_constructor
     a = torch.randn(512, 512, device="cuda")
     b = torch.randn(512, 512, device="cuda")
-    c_ref = torch.matmul(a, b)
+    c_ref = torch_func(a, b)
     constructor = TorchCUDAGraphConstructor()
     constructor.capture_library_call_begin()
-    c = torch.matmul(a, b)
+    c = torch_func(a, b)
     constructor.capture_library_call_end()
     constructor.execute_graph()
     constructor.synchronize()
     assert torch.allclose(c, c_ref)
+
+
+def test_replay_torch_matmul():
+    test_replay_torch(torch.matmul)
+
+
+def test_replay_torch_linear():
+    test_replay_torch(torch.nn.functional.linear)
+
+
+def torch_linear_with_indexing(a: torch.Tensor, b: torch.Tensor):
+    return torch.nn.functional.linear(a[2:514], b)
+
+
+def test_replay_torch_linear_with_indexing():
+    test_replay_torch(torch_linear_with_indexing)
 
 
 def test_replay_cutlass():
@@ -83,5 +102,7 @@ def test_replay_cutlass():
 
 
 if __name__ == "__main__":
-    test_replay_torch()
+    test_replay_torch_linear_with_indexing()
+    test_replay_torch_linear()
+    test_replay_torch_matmul()
     test_replay_cutlass()
