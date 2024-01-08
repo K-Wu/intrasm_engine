@@ -59,3 +59,7 @@ initialize_current_streams()
 
 from . import common
 from . import pytorch
+
+torch.classes.load_library(
+    "intrasm_engine_extensions.cpython-311-x86_64-linux-gnu.so"
+)
