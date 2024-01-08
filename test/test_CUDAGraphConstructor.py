@@ -26,12 +26,32 @@ def test_replay_torch(
     assert torch.allclose(c, c_ref)
 
 
+def test_replay_torch_input_and_weight(
+    torch_func: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+):
+    # intrasm_engine.pytorch.cpp_extensions.cuda_graph_constructor
+    a = torch.randn(512, 512, 512, device="cuda")
+    b = torch.randn(512, 512, device="cuda")
+    c_ref = torch_func(a, b)
+    constructor = TorchCUDAGraphConstructor()
+    constructor.capture_library_call_begin()
+    c = torch_func(a, b)
+    constructor.capture_library_call_end()
+    constructor.execute_graph()
+    constructor.synchronize()
+    assert torch.allclose(c, c_ref)
+
+
 def test_replay_torch_matmul():
     test_replay_torch(torch.matmul)
 
 
+def test_replay_torch_matmul2():
+    test_replay_torch_input_and_weight(torch.matmul)
+
+
 def test_replay_torch_linear():
-    test_replay_torch(torch.nn.functional.linear)
+    test_replay_torch_input_and_weight(torch.nn.functional.linear)
 
 
 def torch_linear_with_indexing(a: torch.Tensor, b: torch.Tensor):
@@ -105,4 +125,5 @@ if __name__ == "__main__":
     test_replay_torch_linear_with_indexing()
     test_replay_torch_linear()
     test_replay_torch_matmul()
+    test_replay_torch_matmul2()
     test_replay_cutlass()
