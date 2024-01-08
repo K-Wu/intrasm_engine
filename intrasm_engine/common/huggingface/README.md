@@ -1,0 +1,2 @@
+## Overview
+This folder provides the intra-SM enabled layer implementation for huggingface models that were validated to retain accuracy by [SparseGPT - Github](https://github.com/IST-DASLab/sparsegpt).
