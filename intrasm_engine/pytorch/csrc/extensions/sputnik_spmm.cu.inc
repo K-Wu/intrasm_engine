@@ -157,8 +157,13 @@ struct SpmmKernel2 {
 
     // Create a loader for the sparse lhs matrix.
     SparseTile sparse_tile_loader(n, row_offset, threadIdx.x,
-                                  values + blockIdx.z * nnz, column_indices,
-                                  values_tile, column_indices_tile);
+#ifdef ENABLE_REUSE_WEIGHT_FLAG
+                                  values,
+#else
+                                  values + blockIdx.z * nnz,
+#endif
+                                  column_indices, values_tile,
+                                  column_indices_tile);
 
     // Register fragment for the dense_matrix values.
     constexpr int kDenseFragmentSize =
@@ -168,7 +173,7 @@ struct SpmmKernel2 {
 
     // Create a loader for the dense dense_matrix matrix.
     DenseTile dense_tile_loader(n, n_index, threadIdx.x,
-#ifdef ENABLE_REUSE_WEIGHT_FLAG
+#ifdef ENABLE_REUSE_RHS_FLAG
                                 dense_matrix,
 #else
                                 dense_matrix + blockIdx.z * k * n,

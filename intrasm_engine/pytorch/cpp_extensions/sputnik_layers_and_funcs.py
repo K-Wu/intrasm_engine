@@ -33,7 +33,10 @@ class MySpMM(torch.autograd.Function):
         backward_constructor = kwargs["backward_constructor"]
         num_streams = kwargs["num_streams"]
         assert num_streams == 1
-        b = b.contiguous()
+        b = b.unsqueeze(0)
+        b = (
+            b.contiguous()
+        )  # Set 1 as the "batch size" in sputnik's SpMM, i.e., set batch size as the "m" in sputnik's SpMM.
         # To use SpMM, set m as kBlockItemsY because each threadIdx.y works on only one row of A,.
         out = torch.ops.iex_ops.spmm_sputnik_reuse_weight(
             b, row_indices, values, row_offsets, column_indices, m
@@ -60,6 +63,7 @@ class MySpMM(torch.autograd.Function):
 
         # gradients w.r.t. values
         grad = grad.contiguous()
+        grad = grad.unsqueeze(0)
 
         # To use SpMM, we need to transpose the dense input as well. (We are using the W*Dout(column-major) equivalence while the original is Dout(row-major)*W. )
         # Do the transpose out of the TorchCUDAConstructor (and timing) zone.
