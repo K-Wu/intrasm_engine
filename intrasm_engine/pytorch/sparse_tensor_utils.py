@@ -1,5 +1,6 @@
 import torch
 from typing import Any
+from xformers import sparse
 
 
 def partition_csr(
@@ -136,3 +137,11 @@ def partition_coo(
                 dtype=torch.float32,
             )
     return row_indices_list, col_indices_list, values_list
+
+
+# Conversion functions from dense tensor with zeros to sparse tensor. Use xformers/xformers/sparse/utils.py
+def dense_to_sparse(
+    matrix, device=torch.device(f"cuda:{torch.cuda.current_device()}")
+):
+    """Converts dense 2d matrix to a csr sparse matrix."""
+    sparse.utils._dense_to_sparse(matrix, device)
