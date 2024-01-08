@@ -83,7 +83,7 @@ def test_replay_cutlass():
     ) = generate_problems(50)
 
     arguments = cutlass_utils.prepare_GemmGroupedArguments(
-        plan, As, Bs, Cs, Ds, print_module=True
+        plan, As, Bs, Cs, Ds, print_module=False
     )
     arguments.stream = cuda.CUstream(
         init_value=torch.cuda.current_stream().cuda_stream
