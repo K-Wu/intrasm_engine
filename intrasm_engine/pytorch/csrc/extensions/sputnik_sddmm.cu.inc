@@ -39,12 +39,13 @@ namespace {
 template <typename LoadType, int kBlockItemsY, int kBlockItemsK,
           int kBlockItemsX, int kBlockWidth, int kPredicateK = true>
 __global__ void __launch_bounds__(kBlockItemsY* kBlockWidth)
-    CudaSddmmKernel2(int m, int k, int n, const int* __restrict__ row_indices,
-                     const int* __restrict__ row_offsets,
-                     const int* __restrict__ column_indices,
-                     const float* __restrict__ lhs_matrix,
-                     const float* __restrict__ rhs_matrix,
-                     float* __restrict__ output_values, int nnz) {
+    CONCAT_ID(CudaSddmmKernel,
+              MYID)(int m, int k, int n, const int* __restrict__ row_indices,
+                    const int* __restrict__ row_offsets,
+                    const int* __restrict__ column_indices,
+                    const float* __restrict__ lhs_matrix,
+                    const float* __restrict__ rhs_matrix,
+                    float* __restrict__ output_values, int nnz) {
   static_assert((kBlockItemsY * kBlockWidth) % 32 == 0,
                 "The thread-block size must be divisible by the warp size.");
   static_assert((kBlockItemsY * kBlockWidth) > 0,
