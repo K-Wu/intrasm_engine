@@ -11,3 +11,5 @@ intrasm_engine/common/*.txt
 CutlassJit/
 *.db
 .eggs/
+*.ncu-rep
+*.nsys-rep
