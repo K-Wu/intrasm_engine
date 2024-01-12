@@ -8,3 +8,6 @@
 	path = 3rdparty/SparTAArtifact
 	url = https://github.com/microsoft/SparTA
 	branch = sparta_artifact
+[submodule "3rdparty/triton_autotuning"]
+	path = 3rdparty/triton_autotuning
+	url = https://github.com/K-Wu/triton_autotuning
