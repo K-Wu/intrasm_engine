@@ -225,7 +225,8 @@ def setup_requirements() -> Tuple[List[str], List[str], List[str]]:
         (
             "torchknickknacks @"
             " git+https://github.com/AlGoulas/torchknickknacks.git"
-        )
+        ),
+        "triton_autotuning @ git+https://github.com/K-Wu/triton_autotuning"
         # TODO: enable the following and test if it works
         # "SparTA @ git+ssh://git@github.com:K-Wu/SparTA@main",
     ]
