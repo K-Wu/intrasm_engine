@@ -13,3 +13,5 @@ CutlassJit/
 .eggs/
 *.ncu-rep
 *.nsys-rep
+*.json
+*.svg
