@@ -1,6 +1,7 @@
 import intrasm_engine
 import intrasm_engine_extensions as iex
 import torch
+from torch import nn
 import pycuda
 import pycuda.autoprimaryctx
 from ...common.compound_streams import CompoundStream
@@ -32,6 +33,10 @@ class TorchCUDAGraphConstructor:
         self.constructor.register_stream(
             self.registeredStreams[0].torch_stream.stream.cuda_stream
         )
+
+    def get_primary_stream(self) -> CompoundStream:
+        """the first stream is the stream where streams join and the graph is executed."""
+        return self.registeredStreams[0]
 
     def register_new_stream(self) -> CompoundStream:
         pycuda_stream = pycuda.driver.Stream()
@@ -98,67 +103,3 @@ class TorchCUDAGraphConstructor:
 
     def __exit__(self, *args):
         self.capture_library_call_end()
-
-
-class CUDAGraphModulePreviousLayerFunction(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, *input):
-        """
-        torch.autograd.Function's forward function has **kwargs to parameterize the forward+backward function pair. We created CUDAGraphModulePreviousLayerFunction to replay the graph captured in the constructor.
-        So we only need to pass all the tensors as is to make sure the replay does executed by the PyTorch autograd engine. We do not need to pass **kwargs from the replayed function.
-        In future, if we need to parameterize the CUDAGraphModulePreviousLayerFunction itself, we may add **kwargs.
-        """
-        ctx.backward_constructor = input[0]
-        ctx.save_for_backward(*input[1:])
-        tensor_input = input[1:]
-        return (*tensor_input,)
-
-    @staticmethod
-    def backward(ctx, *grad_tensor_input):
-        backward_constructor = ctx.backward_constructor
-        backward_constructor.execute_graph()
-        backward_constructor.synchronize()
-        return (None, *grad_tensor_input)
-
-
-class CUDAGraphModuleNextLayerFunction(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, *input):
-        """
-        torch.autograd.Function's forward function has **kwargs to parameterize the forward+backward function pair. We created CUDAGraphModuleNextLayerFunction to replay the graph captured in the constructor.
-        So we only need to pass all the tensors as is to make sure the replay does executed by the PyTorch autograd engine. We do not need to pass **kwargs from the replayed function.
-        In future, if we need to parameterize the CUDAGraphModuleNextLayerFunction itself, we may add **kwargs.
-        """
-        forward_constructor = input[0]
-        ctx.forward_constructor = forward_constructor
-        tensor_input = input[1:]
-        ctx.save_for_backward(*tensor_input)
-        forward_constructor.execute_graph()
-        forward_constructor.synchronize()
-        return (*tensor_input,)
-
-    @staticmethod
-    def backward(ctx, *grad_tensor_input):
-        return (None, *grad_tensor_input)
-
-
-class CUDAGraphModulePreviousLayer(torch.nn.Module):
-    def __init__(self, backward_constructor: TorchCUDAGraphConstructor):
-        super().__init__()
-        self.backward_constructor = backward_constructor
-
-    def forward(self, *input):
-        return CUDAGraphModulePreviousLayerFunction.apply(
-            self.backward_constructor, *input
-        )
-
-
-class CUDAGraphModuleNextLayer(torch.nn.Module):
-    def __init__(self, forward_constructor: TorchCUDAGraphConstructor):
-        super().__init__()
-        self.forward_constructor = forward_constructor
-
-    def forward(self, *input):
-        return CUDAGraphModuleNextLayerFunction.apply(
-            self.forward_constructor, *input
-        )

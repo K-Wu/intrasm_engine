@@ -142,6 +142,57 @@ def partition_coo(
 # Conversion functions from dense tensor with zeros to sparse tensor. Use xformers/xformers/sparse/utils.py
 def dense_to_sparse(
     matrix, device=torch.device(f"cuda:{torch.cuda.current_device()}")
-):
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Converts dense 2d matrix to a csr sparse matrix."""
-    sparse.utils._dense_to_sparse(matrix, device)
+    (
+        values,
+        row_indices,
+        row_offsets,
+        column_indices,
+    ) = sparse.utils._dense_to_sparse(matrix, device)
+    return values, row_indices, row_offsets, column_indices
+
+
+# TODO: extract mask from pytorch model parameters, e.g., https://huggingface.co/SparseLLM
+# Mask reference: random_mask in intrasm_engine/3rdparty/SparTA/sparta/testing/mask.py
+
+
+def check_tensor_eligible_for_tensor_core(a: torch.Tensor):
+    # Tensor cores are used if the inputs are float16, the shapes are multiples of 8 and it’s a matmul call.
+    # From https://discuss.pytorch.org/t/how-to-check-tensor-core-has-been-used/39714
+    for i in a.shape:
+        if i % 8 != 0:
+            return False
+    if a.dtype != torch.float16:
+        return False
+    if a.is_cuda:
+        return True
+    return False
+
+
+def set_tf32_use_tensor_core():
+    print("Setting TF32 use Tensor Core")
+    # From https://discuss.pytorch.org/t/does-pytorch-use-tensor-cores-by-default/167676/3
+    # The flag below controls whether to allow TF32 on matmul. This flag defaults to False
+    # in PyTorch 1.12 and later.
+    torch.backends.cuda.matmul.allow_tf32 = True
+    # The flag below controls whether to allow TF32 on cuDNN. This flag defaults to True.
+    torch.backends.cudnn.allow_tf32 = True
+
+
+def reset_tf32_use_tensor_core():
+    print("Resetting TF32 use Tensor Core")
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+
+
+def set_float_16_reduced_precision():
+    print("Setting float16 and bf16 using reduced precision in reduction")
+    torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = True
+    torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = True
+
+
+def reset_float_16_reduced_precision():
+    print("Resetting float16 and bf16 using reduced precision in reduction")
+    torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
+    torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False

@@ -37,7 +37,7 @@ This repository follows the directory structure of [TransformerEngine - Github](
 ### Multistream
 We have incorporated stream switch support in [our custom SparTa repo](https://github.com/K-Wu/SparTA).
 
-For Cutlass, the Python interface does have stream support, but it is not exposed to the top-level API. We filed a [PR](https://github.com/NVIDIA/cutlass/pull/1287) to expose the stream support to the top-level API.
+For Cutlass, the Python interface does have stream support, but it is not exposed to the top-level API. We filed a [PR](https://github.com/NVIDIA/cutlass/pull/1287), now merged, to expose the stream support to the top-level API.
 
 ### CUDA Library Determinism
 We don't preserve cuBLAS determinism for now.

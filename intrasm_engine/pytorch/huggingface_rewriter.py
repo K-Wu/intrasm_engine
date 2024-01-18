@@ -7,6 +7,7 @@ from peft.utils.other import _get_submodules
 # check_target_module_exists(config, key: str) -> bool | re.Match[str] | None
 from peft.tuners.tuners_utils import check_target_module_exists
 import re
+import torch
 from torch import nn
 from transformers.models.llama.modeling_llama import LlamaForCausalLM
 from transformers import TrainerCallback
@@ -16,10 +17,6 @@ from .cpp_extensions import cuda_graph_constructor
 import logging
 
 logger = logging.getLogger(__name__)
-
-
-class ConstructorEnabledLayer(nn.Module):
-    ...
 
 
 class IntraSMCallback(TrainerCallback):
@@ -48,19 +45,6 @@ class IntraSMCallback(TrainerCallback):
         """Register the tensor dictionary and the config dictionary to which the inserted KernelPairModule refer for forward propagation and backward propagation."""
         state["tensor_dict"] = self.tensor_dict
         state["config_dict"] = self.config_dict
-
-
-def make_previous_and_next_layer(
-    constructor_enabled_layer: ConstructorEnabledLayer,
-) -> tuple[nn.Module, nn.Module]:
-    return (
-        cuda_graph_constructor.CUDAGraphModulePreviousLayer(
-            constructor_enabled_layer.backward_constructor
-        ),
-        cuda_graph_constructor.CUDAGraphModuleNextLayer(
-            constructor_enabled_layer.forward_constructor
-        ),
-    )
 
 
 class IntraSMAdapter(nn.Module):
