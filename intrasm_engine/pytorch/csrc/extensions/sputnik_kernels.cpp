@@ -29,13 +29,15 @@ at::Tensor empty_sddmm_output_with_weight_reuse_disabled(int batch,
   return at::empty({batch, nonzeros}, a.options());
 }
 
-#define DEFINE_SPMM_KERNEL_LAUNCHER(name, id, value_check_func, vtype_,        \
-                                    itype_)                                    \
+#define DEFINE_SPMM_KERNEL_LAUNCHER(name, id, value_check_func, cuvtype_,      \
+                                    vtype_, cuitype_, itype_)                  \
   at::Tensor name(const at::Tensor& b, const at::Tensor& row_indices,          \
                   const at::Tensor& values, const at::Tensor& row_offsets,     \
                   const at::Tensor& column_indices, int64_t m) {               \
     typedef vtype_ vtype;                                                      \
     typedef itype_ itype;                                                      \
+    typedef cuvtype_ cuvtype;                                                  \
+    typedef cuitype_ cuitype;                                                  \
     TORCH_CHECK(b.dim() == 3);                                                 \
     value_check_func(b, values, column_indices);                               \
     TORCH_CHECK(row_indices.dim() == 1);                                       \
@@ -90,9 +92,11 @@ at::Tensor empty_sddmm_output_with_weight_reuse_disabled(int batch,
                                                                                \
     AT_CUDA_CHECK(my_sputnik::CONCAT_ID(CudaSpmm, id)(                         \
         m, k, n, nonzeros, row_indices.data_ptr<int>(),                        \
-        values.data_ptr<vtype>(), row_offsets.data_ptr<int>(),                 \
-        column_indices.data_ptr<itype>(), b.data_ptr<vtype>(),                 \
-        output.data_ptr<vtype>(), stream, batch));                             \
+        reinterpret_cast<cuvtype*>(values.data_ptr<vtype>()),                  \
+        row_offsets.data_ptr<int>(),                                           \
+        reinterpret_cast<cuitype*>(column_indices.data_ptr<itype>()),          \
+        reinterpret_cast<cuvtype*>(b.data_ptr<vtype>()),                       \
+        reinterpret_cast<cuvtype*>(output.data_ptr<vtype>()), stream, batch)); \
                                                                                \
     return output;                                                             \
   }
@@ -164,15 +168,17 @@ at::Tensor empty_sddmm_output_with_weight_reuse_disabled(int batch,
   }
 
 DEFINE_SPMM_KERNEL_LAUNCHER(spmm_sputnik_atomic, 2,
-                            check_values_with_weight_reuse_disabled, float, int)
+                            check_values_with_weight_reuse_disabled, float,
+                            float, int, int)
 DEFINE_SPMM_KERNEL_LAUNCHER(spmm_sputnik_reuse_weight, 3,
-                            check_values_with_weight_reuse_enabled, float, int)
+                            check_values_with_weight_reuse_enabled, float,
+                            float, int, int)
 // DEFINE_SPMM_KERNEL_LAUNCHER(spmm_sputnik_atomic, 4,
 //                             check_values_with_weight_reuse_disabled,
 //                             at::Half,short2)
-// DEFINE_SPMM_KERNEL_LAUNCHER(spmm_sputnik_reuse_weight, 5,
-//                             check_values_with_weight_reuse_enabled,
-//                             at::Half,short2)
+DEFINE_SPMM_KERNEL_LAUNCHER(spmm_sputnik_reuse_weight_half, 5,
+                            check_values_with_weight_reuse_enabled, half2,
+                            at::Half, short2, short)
 DEFINE_SDDMM_KERNEL_LAUNCHER(sddmm_sputnik_atomic_upd_weight, 2,
                              empty_sddmm_output_with_weight_reuse_enabled,
                              float)

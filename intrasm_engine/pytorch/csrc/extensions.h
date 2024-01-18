@@ -7,13 +7,14 @@ namespace my_sputnik {
 
 #define CONCAT_ID_(prefix, id) prefix##id
 #define CONCAT_ID(prefix, id) CONCAT_ID_(prefix, id)
-#define DECLARE_SPMM_KERNEL_LAUNCHER(name, id)                                \
+#define DECLARE_SPMM_KERNEL_LAUNCHER(name, id, vtype_, itype_)                \
   cudaError_t CONCAT_ID(name, id)(                                            \
       int m, int k, int n, int nonzeros, const int* __restrict__ row_indices, \
-      const float* __restrict__ values, const int* __restrict__ row_offsets,  \
-      const int* __restrict__ column_indices,                                 \
-      const float* __restrict__ dense_matrix,                                 \
-      float* __restrict__ output_matrix, cudaStream_t stream, int batch_size);
+      const vtype_* __restrict__ values, const int* __restrict__ row_offsets, \
+      const itype_* __restrict__ column_indices,                              \
+      const vtype_* __restrict__ dense_matrix,                                \
+      vtype_* __restrict__ output_matrix, cudaStream_t stream,                \
+      int batch_size);
 
 #define DECLARE_SDDMM_KERNEL_LAUNCHER(name, id)                                \
   cudaError_t CONCAT_ID(name, id)(                                             \
@@ -24,7 +25,8 @@ namespace my_sputnik {
       const float* __restrict__ rhs_matrix, float* __restrict__ output_values, \
       cudaStream_t stream, int batch_size);
 
-DECLARE_SPMM_KERNEL_LAUNCHER(CudaSpmm, 2)
-DECLARE_SPMM_KERNEL_LAUNCHER(CudaSpmm, 3)
+DECLARE_SPMM_KERNEL_LAUNCHER(CudaSpmm, 2, float, int)
+DECLARE_SPMM_KERNEL_LAUNCHER(CudaSpmm, 3, float, int)
+DECLARE_SPMM_KERNEL_LAUNCHER(CudaSpmm, 5, half2, short2)
 DECLARE_SDDMM_KERNEL_LAUNCHER(CudaSddmm, 2)
 }  // namespace my_sputnik
