@@ -286,6 +286,7 @@ class PyWrapperCudaGraphWrapper {
   cudaGraph_t getGraph() { return graph_wrapper_->get<cudaGraph_t>(); }
   void notifyAddedAsChildGraph() { graph_wrapper_->notifyAddedAsChildGraph(); }
   bool isAddedAsChildGraph() { return graph_wrapper_->addedAsChildGraph; }
+  void instantiateGraph() { graph_wrapper_->instantiateGraph(); }
   void executeGraph(cudaStream_t stream) {
     graph_wrapper_->executeGraph(stream);
   }
@@ -337,6 +338,10 @@ class PyWrapperCUDAGraphConstructor {
     void* dst_stream_v = reinterpret_cast<void*>(dst_stream);
     cudaStream_t dst_stream_t = static_cast<cudaStream_t>(dst_stream_v);
     constructor_.join(streams_t, dst_stream_t);
+  }
+
+  void instantiateGraph() {
+    constructor_.getGraphWrapper()->instantiateGraph();
   }
 
   void executeGraph(cudaStream_t stream) {
@@ -463,6 +468,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       .def("add_graph_as_child_node",
            torch::wrap_pybind_function_no_gil(
                &IntraSMEngine::PyWrapperCudaGraphWrapper::addGraphAsChildNode))
+      .def("instantiate_graph",
+           torch::wrap_pybind_function_no_gil(
+               &IntraSMEngine::PyWrapperCudaGraphWrapper::instantiateGraph))
       .def(
           "execute_graph",
           [](IntraSMEngine::PyWrapperCudaGraphWrapper& self, long stream) {
@@ -479,6 +487,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   shared_ptr_class_<IntraSMEngine::PyWrapperCUDAGraphConstructor>(
       m, "CUDAExperimentalGraphConstructor")
       .def(py::init<>())
+      .def("instantiate_graph",
+           torch::wrap_pybind_function_no_gil(
+               &IntraSMEngine::PyWrapperCUDAGraphConstructor::instantiateGraph))
       .def(
           "execute_graph",
           [](IntraSMEngine::PyWrapperCUDAGraphConstructor& self, long stream) {

@@ -23,6 +23,7 @@ def test_replay_torch(
     constructor.capture_library_call_begin()
     c = torch_func(a, b)
     constructor.capture_library_call_end()
+    constructor.instantiate_graph()
     constructor.execute_graph()
     constructor.synchronize()
     assert torch.allclose(c, c_ref)
@@ -39,6 +40,7 @@ def test_replay_torch_input_and_weight(
     constructor.capture_library_call_begin()
     c = torch_func(a, b)
     constructor.capture_library_call_end()
+    constructor.instantiate_graph()
     constructor.execute_graph()
     constructor.synchronize()
     assert torch.allclose(c, c_ref)
@@ -118,7 +120,7 @@ def test_replay_cutlass():
     constructor.capture_library_call_begin()
     plan.operation.run(arguments)
     constructor.capture_library_call_end()
-
+    constructor.instantiate_graph()
     constructor.execute_graph()
     constructor.synchronize()
     Ds_torch = [a @ b for a, b in zip(As, Bs)]

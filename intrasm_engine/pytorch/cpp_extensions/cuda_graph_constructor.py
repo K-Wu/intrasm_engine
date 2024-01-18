@@ -78,8 +78,11 @@ class TorchCUDAGraphConstructor:
         )
         self.notifier.capture_end()
 
+    def instantiate_graph(self):
+        self.constructor.instantiate_graph()
+
     def execute_graph(self):
-        self.notifier.replay()
+        self.notifier.replay()  # TODO: check if this line needs to be before instantiate_graph()
         # Use the first stream to execute the graph
         self.constructor.execute_graph(
             self.registeredStreams[0].torch_stream.stream.cuda_stream

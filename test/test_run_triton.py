@@ -25,20 +25,28 @@ def test_matmul_fp16():
     c = torch.matmul(a, b)
 
 
+def gemm_tflops(m, n, k, msec):
+    # From flops() at https://github.com/NVIDIA/cutlass/blob/b4b5b110704f4d706a78b190ffadf0e4a86f8289/tools/profiler/src/gemm_operation_profiler.cu
+    return 2 * (m * n * k + m * n) / (msec * 1e-3) / 1e12
+
+
 def test_triton_simt_and_matmul_interleave(
-    m=256, n=256, k=128, mt=2048, nt=128, kt=64
+    m=1280, n=1024, k=256, mt=1280, nt=1024, kt=1024
 ):
     def test_non_interleaving(a, b, matmul_func):
         constructor = TorchCUDAGraphConstructor()
         constructor.capture_library_call_begin()
         c = matmul_func(a, b)
         constructor.capture_library_call_end()
+        constructor.instantiate_graph()
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
         torch.cuda.synchronize()
-        start = time.perf_counter()
+        start_event.record()
         constructor.execute_graph()
+        end_event.record()
         constructor.synchronize()
-        end = time.perf_counter()
-        return end - start
+        return start_event.elapsed_time(end_event)
 
     def test_interleaving():
         a = torch.randn(mt, kt, device="cuda", dtype=torch.float16)
@@ -52,25 +60,43 @@ def test_triton_simt_and_matmul_interleave(
         constructor.capture_library_call_begin()
         c2 = triton_utils.run_matmul(a2, b2)  # SIMT
         constructor.capture_library_call_end()
+        constructor.instantiate_graph()
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
         torch.cuda.synchronize()
-        start = time.perf_counter()
+        start_event.record()
         constructor.execute_graph()
+        end_event.record()
         constructor.synchronize()
-        end = time.perf_counter()
-        print(f"Interleaved Time: {end - start}")
-
-    print(
-        "Non-interleaved time: ",
-        test_non_interleaving(  # Tensor core
-            torch.randn(mt, kt, device="cuda", dtype=torch.float16),
-            torch.randn(kt, nt, device="cuda", dtype=torch.float16),
-            torch.matmul,
+        print(f"Interleaved Time event: {start_event.elapsed_time(end_event)}")
+        print(
+            "TFLOPs",
+            gemm_tflops(m, n, k, start_event.elapsed_time(end_event))
+            + gemm_tflops(mt, nt, kt, start_event.elapsed_time(end_event)),
         )
-        + test_non_interleaving(  # SIMT
-            torch.randn(m, k, device="cuda"),
-            torch.randn(k, n, device="cuda"),
-            triton_utils.run_matmul,
-        ),
+
+    tensor_core_time = test_non_interleaving(  # Tensor core
+        torch.randn(mt, kt, device="cuda", dtype=torch.float16),
+        torch.randn(kt, nt, device="cuda", dtype=torch.float16),
+        torch.matmul,  # TODO: This cannot be the first torch.matmul invoked
+    )
+    simt_time = test_non_interleaving(  # SIMT
+        torch.randn(m, k, device="cuda"),
+        torch.randn(k, n, device="cuda"),
+        triton_utils.run_matmul,
+    )
+    print(
+        "Non-interleaved time event: ",
+        tensor_core_time,
+        simt_time,
+        tensor_core_time + simt_time,
+    )
+    print(
+        "TFLOPs",
+        gemm_tflops(mt, nt, kt, tensor_core_time),
+        gemm_tflops(m, n, k, simt_time),
+        gemm_tflops(m, n, k, tensor_core_time + simt_time)
+        + gemm_tflops(mt, nt, kt, tensor_core_time + simt_time),
     )
     test_interleaving()
 

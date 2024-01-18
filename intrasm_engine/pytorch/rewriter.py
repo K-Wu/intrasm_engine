@@ -251,6 +251,7 @@ class CUDAGraphModulePreviousLayerFunction(torch.autograd.Function):
     @staticmethod
     def backward(ctx, *grad_tensor_input):
         backward_constructor = ctx.backward_constructor
+        backward_constructor.instantiate_graph()
         backward_constructor.execute_graph()
         backward_constructor.synchronize()
         return (None, *grad_tensor_input)
@@ -269,6 +270,7 @@ class CUDAGraphModuleNextLayerFunction(torch.autograd.Function):
         forward_constructor = kwargs["forward_constructor"]
         ctx.forward_constructor = forward_constructor
         ctx.save_for_backward(*input)
+        forward_constructor.instantiate_graph()
         forward_constructor.execute_graph()
         forward_constructor.synchronize()
         return (*input,)
