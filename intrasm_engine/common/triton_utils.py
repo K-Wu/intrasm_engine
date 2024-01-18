@@ -18,6 +18,8 @@ def run_matmul(
     c: torch.Tensor,
     scratchpad: torch.Tensor,  # Largest size: c * SPLIT_K
     acc_ty: tl.dtype = tl.float32,
+    ab_dtype: tl.dtype | None = None,
+    allow_tf32: bool = False,
 ):
     """Based on benchmark_matmul_tiling in triton_autotuning/matmul_lib.py"""
 
@@ -54,6 +56,8 @@ def run_matmul(
             force_num_stages=tiling.num_stages,  # unused
             acc_ty=acc_ty,
             IS_ATOMIC_ADD=False,
+            AB_DTYPE=ab_dtype,
+            ALLOW_TF32=allow_tf32,
         )
         if tiling.SPLIT_K != 1:
             # Run reduction kernel.
