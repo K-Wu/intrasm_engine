@@ -78,8 +78,8 @@ class TorchCUDAGraphConstructor:
         )
         self.notifier.capture_end()
 
-    def instantiate_graph(self):
-        self.constructor.instantiate_graph()
+    def instantiate_graph_exec(self):
+        self.constructor.instantiate_graph_exec()
 
     def execute_graph(self):
         self.notifier.replay()  # TODO: check if this line needs to be before instantiate_graph()
@@ -91,6 +91,8 @@ class TorchCUDAGraphConstructor:
     def synchronize(self):
         """Do device synchronize and destroy the graphExec"""
         torch.cuda.synchronize(device=self.device)
+
+    def destroy_graph_exec(self):
         self.constructor.destroy_graph_exec()
 
     # Context-related APIs. We are following the design of torch.cuda.Graph: https://pytorch.org/blog/accelerating-pytorch-with-cuda-graphs/#api-example

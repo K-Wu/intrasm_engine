@@ -20,7 +20,7 @@ def test_triton_simt_and_matmul_interleave(
         constructor.capture_library_call_begin()
         c = matmul_func(a, b)
         constructor.capture_library_call_end()
-        constructor.instantiate_graph()
+        constructor.instantiate_graph_exec()
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
         torch.cuda.synchronize()
@@ -28,6 +28,7 @@ def test_triton_simt_and_matmul_interleave(
         constructor.execute_graph()
         end_event.record()
         constructor.synchronize()
+        constructor.destroy_graph_exec()
         return start_event.elapsed_time(end_event)
 
     def test_interleaving():
@@ -42,7 +43,7 @@ def test_triton_simt_and_matmul_interleave(
         constructor.capture_library_call_begin()
         c2 = triton_utils.run_matmul(a2, b2)  # SIMT
         constructor.capture_library_call_end()
-        constructor.instantiate_graph()
+        constructor.instantiate_graph_exec()
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
         torch.cuda.synchronize()
@@ -50,6 +51,7 @@ def test_triton_simt_and_matmul_interleave(
         constructor.execute_graph()
         end_event.record()
         constructor.synchronize()
+        constructor.destroy_graph_exec()
         print(f"Interleaved Time event: {start_event.elapsed_time(end_event)}")
         print(
             "TFLOPs",

@@ -286,7 +286,7 @@ class PyWrapperCudaGraphWrapper {
   cudaGraph_t getGraph() { return graph_wrapper_->get<cudaGraph_t>(); }
   void notifyAddedAsChildGraph() { graph_wrapper_->notifyAddedAsChildGraph(); }
   bool isAddedAsChildGraph() { return graph_wrapper_->addedAsChildGraph; }
-  void instantiateGraph() { graph_wrapper_->instantiateGraph(); }
+  void instantiateGraphExec() { graph_wrapper_->instantiateGraphExec(); }
   void executeGraph(cudaStream_t stream) {
     graph_wrapper_->executeGraph(stream);
   }
@@ -340,8 +340,8 @@ class PyWrapperCUDAGraphConstructor {
     constructor_.join(streams_t, dst_stream_t);
   }
 
-  void instantiateGraph() {
-    constructor_.getGraphWrapper()->instantiateGraph();
+  void instantiateGraphExec() {
+    constructor_.getGraphWrapper()->instantiateGraphExec();
   }
 
   void executeGraph(cudaStream_t stream) {
@@ -468,9 +468,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       .def("add_graph_as_child_node",
            torch::wrap_pybind_function_no_gil(
                &IntraSMEngine::PyWrapperCudaGraphWrapper::addGraphAsChildNode))
-      .def("instantiate_graph",
+      .def("instantiate_graph_exec",
            torch::wrap_pybind_function_no_gil(
-               &IntraSMEngine::PyWrapperCudaGraphWrapper::instantiateGraph))
+               &IntraSMEngine::PyWrapperCudaGraphWrapper::instantiateGraphExec))
       .def(
           "execute_graph",
           [](IntraSMEngine::PyWrapperCudaGraphWrapper& self, long stream) {
@@ -487,9 +487,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   shared_ptr_class_<IntraSMEngine::PyWrapperCUDAGraphConstructor>(
       m, "CUDAExperimentalGraphConstructor")
       .def(py::init<>())
-      .def("instantiate_graph",
+      .def("instantiate_graph_exec",
            torch::wrap_pybind_function_no_gil(
-               &IntraSMEngine::PyWrapperCUDAGraphConstructor::instantiateGraph))
+               &IntraSMEngine::PyWrapperCUDAGraphConstructor::
+                   instantiateGraphExec))
       .def(
           "execute_graph",
           [](IntraSMEngine::PyWrapperCUDAGraphConstructor& self, long stream) {
