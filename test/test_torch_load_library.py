@@ -2,6 +2,8 @@
 import os
 import torch
 from pathlib import Path
+import intrasm_engine
+import intrasm_engine_extensions as iex
 
 root_path: Path = Path(__file__).resolve().parent.parent
 if __name__ == "__main__":
