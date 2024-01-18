@@ -9,6 +9,8 @@ from intrasm_engine.common import cutlass_utils
 from cuda import cuda
 from typing import Callable
 
+import intrasm_engine.common.triton_utils as triton_utils
+
 
 def test_replay_torch(
     torch_func: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
@@ -44,6 +46,10 @@ def test_replay_torch_input_and_weight(
 
 def test_replay_torch_matmul():
     test_replay_torch(torch.matmul)
+
+
+def test_replay_triton_matmul():
+    test_replay_torch(triton_utils.run_matmul)
 
 
 def test_replay_torch_matmul2():
@@ -127,3 +133,4 @@ if __name__ == "__main__":
     test_replay_torch_matmul()
     test_replay_torch_matmul2()
     test_replay_cutlass()
+    test_replay_triton_matmul()
