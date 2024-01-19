@@ -39,7 +39,7 @@ def test_cutlass_gemm():
         D,
     ) = generate_problems()
 
-    plan.run(A, B, None, D, print_module=True)
+    plan.run(A, B, None, D, print_module=False)
     D_torch = A @ B
 
     assert torch.allclose(D, D_torch)
@@ -50,9 +50,10 @@ def test_cutlass_grouped_gemm():
     plan = cutlass.op.GroupedGemm(
         element=dtype,
         layout=cutlass.LayoutType.RowMajor,
-        element_C=cutlass.DataType.void,
-        element_accumulator=cutlass.DataType.f16,
     )
+    for td in plan.tile_descriptions():
+        print(td)
+    # TODO: Set tile descrption by plan.tile_description()
     import random
 
     random.seed(2023)

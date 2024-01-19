@@ -202,3 +202,6 @@ def prepare_GemmGroupedArguments(
     )
 
     return arguments
+
+
+# TODO: cutlass.op.Gemm greedily uses tensorop whenever tensorop kernels support the data type combination. To change it to SIMT, we need to do `plan.opclass = cutlass.OpcodeClass.Simt`: It calls .opclass(), the opclass.setter, defined in /cutlass/python/cutlass/op/op.py. Consequently, it changes .op_class and set functors and operations whenever we want the SIMT kernel. Reference: /cutlass/python/docs/externals/00_basic_gemm.html#Changing-operation-modes
