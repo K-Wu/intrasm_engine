@@ -72,7 +72,7 @@ def test_replay_torch_linear_with_indexing():
     test_replay_torch(torch_linear_with_indexing)
 
 
-def test_replay_cutlass():
+def test_replay_cutlass_grouped_gemm():
     # This is based on https://github.com/NVIDIA/cutlass/blob/8236f30675bbe98f81d11c05764b77bfcb25b8cc/examples/python/02_pytorch_extension_grouped_gemm.ipynb.
     import cutlass
 
@@ -132,10 +132,70 @@ def test_replay_cutlass():
         assert torch.allclose(d, d_torch)
 
 
+def test_replay_cutlass_gemm():
+    import cutlass
+
+    dtype = torch.float16
+    plan = cutlass.op.Gemm(
+        element=dtype,
+        layout=cutlass.LayoutType.RowMajor,
+        element_C=cutlass.DataType.void,
+        element_accumulator=cutlass.DataType.f16,
+    )
+    import random
+
+    random.seed(2023)
+
+    # Utility function to initialize A, B, C, and D matrices corresponding to dimensions M, N, and K
+    def initialize(dtype, M, N, K):
+        sizes = [(M, K), (K, N), (M, N)]
+        return [
+            torch.randint(-3, 3, size, device="cuda").to(dtype)
+            for size in sizes
+        ]
+
+    # Utility function to generate `problems` GEMMs of random sizes
+    def generate_problems():
+        valid_sizes = [128, 256, 512, 1024]
+        M, N, K = [random.choice(valid_sizes) for _ in range(3)]
+        A, B, D = initialize(dtype, M, N, K)
+        return A, B, D
+
+    (
+        A,
+        B,
+        D,
+    ) = generate_problems()
+    arguments = cutlass_utils.prepare_GemmArguments(
+        plan,
+        A,
+        B,
+        None,
+        D,
+        print_module=False,
+        stream=cuda.CUstream(
+            init_value=torch.cuda.current_stream().cuda_stream
+        ),
+    )
+    constructor = TorchCUDAGraphConstructor()
+    constructor.capture_library_call_begin()
+    plan.operation.run(arguments)
+    constructor.capture_library_call_end()
+    constructor.instantiate_graph_exec()
+    constructor.execute_graph()
+    constructor.synchronize()
+    constructor.destroy_graph_exec()
+
+    D_torch = A @ B
+
+    assert torch.allclose(D, D_torch)
+
+
 if __name__ == "__main__":
     test_replay_torch_linear_with_indexing()
     test_replay_torch_linear()
     test_replay_torch_matmul()
     test_replay_torch_matmul2()
-    test_replay_cutlass()
+    test_replay_cutlass_grouped_gemm()
+    test_replay_cutlass_gemm()
     test_replay_triton_matmul()

@@ -3,6 +3,103 @@ from cutlass.op.gemm_grouped import (
     GemmGroupedArguments,
     GemmCoord,
 )
+from cutlass.op.gemm import (
+    Gemm,
+    GemmArguments,
+    GemmCoord,
+    DataType,
+    GemmUniversalMode,
+)
+from cutlass.backend.evt import EpilogueFunctorVisitor
+from cuda import cuda
+
+
+def prepare_GemmArguments(
+    plan: Gemm,
+    A=None,
+    B=None,
+    C=None,
+    D=None,
+    alpha=None,
+    beta=None,
+    sync: bool = True,
+    print_module: bool = False,
+    visitor_args: dict = None,
+    stream: cuda.CUstream = cuda.CUstream(0),
+) -> GemmArguments:
+    """This function is the first step Gemm.run() defined in cutlass/op/gemm.py cutlass python interface.
+    We put them into this function to separate the execution from the argument preparation originally together in GropuedGemm.run().
+    This allows us to use CUDAGraphConstructor. Otherwise, the compile in the preparation stage in run() forbid us to use CUDAGraphConstructor.
+    """
+    plan.run_setup()
+    A = plan._verify_tensor(A, plan.A, plan._element_a, plan._layout_a, "A")
+    B = plan._verify_tensor(B, plan.B, plan._element_b, plan._layout_b, "B")
+    C = plan._verify_tensor(C, plan.C, plan._element_c, plan._layout_c, "C")
+    D = plan._verify_tensor(D, plan.D, plan._element_d, plan._layout_d, "D")
+    alpha = plan._verify_scalar(alpha, plan.alpha, plan._element_c, "alpha")
+    beta = plan._verify_scalar(beta, plan.beta, plan._element_c, "beta")
+
+    is_void_c = plan._element_c == DataType.void
+
+    plan._verify_rank(A)
+    plan._verify_rank(B)
+    if not is_void_c:
+        plan._verify_rank(C)
+    plan._verify_rank(D)
+
+    alignment_a = plan.possible_operations.find_alignment(
+        A.shape, plan._layout_a, operand="A"
+    )
+    alignment_b = plan.possible_operations.find_alignment(
+        B.shape, plan._layout_b, operand="B"
+    )
+
+    # Set C alignment based on D.shape so as to correctly get an alignment with void-C
+    # kernels, for which `C` is None.
+    alignment_c = plan.possible_operations.find_alignment(
+        D.shape, plan._layout_c, operand="C"
+    )
+    plan.compile(
+        plan._tile_description,
+        alignment_A=alignment_a,
+        alignment_B=alignment_b,
+        alignment_C=alignment_c,
+        print_module=print_module,
+    )
+
+    problem_size, mode, batch_count = plan._get_problem_args(A, B, C, D)
+
+    if mode == GemmUniversalMode.Gemm or batch_count == 1:
+        kwargs = {"split_k_slices": 1}
+    else:
+        kwargs = {
+            "batch": batch_count,
+            "batch_strides": {
+                "A": plan._get_batch_stride(A),
+                "B": plan._get_batch_stride(B),
+                "C": plan._get_batch_stride(C),
+                "D": plan._get_batch_stride(D),
+            },
+        }
+    kwargs["stream"] = stream
+
+    if isinstance(plan.epilogue_functor, EpilogueFunctorVisitor):
+        output_op = plan.operation.epilogue_type(visitor_args)
+    else:
+        output_op = plan.operation.epilogue_type(alpha, beta)
+
+    arguments = GemmArguments(
+        operation=plan.operation,
+        problem_size=problem_size,
+        A=A,
+        B=B,
+        C=C,
+        D=D,
+        output_op=output_op,
+        gemm_mode=mode,
+        **kwargs
+    )
+    return arguments
 
 
 def prepare_GemmGroupedArguments(
