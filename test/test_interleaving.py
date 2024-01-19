@@ -86,9 +86,6 @@ def test_triton_simt_and_matmul_interleave(
 
 
 if __name__ == "__main__":
-    # test_triton_matmul()
-    # test_triton_matmul_fp16()
-    # test_matmul_fp16()
     # Print the current cuBLAS handle to force cuBLAS initialization
     print(torch.cuda.current_blas_handle())
     test_triton_simt_and_matmul_interleave()
