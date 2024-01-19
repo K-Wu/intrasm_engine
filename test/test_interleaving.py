@@ -62,7 +62,7 @@ def test_triton_simt_and_matmul_interleave(
     tensor_core_time = test_non_interleaving(  # Tensor core
         torch.randn(mt, kt, device="cuda", dtype=torch.float16),
         torch.randn(kt, nt, device="cuda", dtype=torch.float16),
-        torch.matmul,  # TODO: This cannot be the first torch.matmul invoked
+        torch.matmul,  # FIXME: This cannot be the first torch.matmul invoked; otherwise cublas is not initialized. The current workaround is to print(torch.cuda.current_blas_handle()) before calling this function.
     )
     simt_time = test_non_interleaving(  # SIMT
         torch.randn(m, k, device="cuda"),
@@ -86,6 +86,4 @@ def test_triton_simt_and_matmul_interleave(
 
 
 if __name__ == "__main__":
-    # Print the current cuBLAS handle to force cuBLAS initialization
-    print(torch.cuda.current_blas_handle())
     test_triton_simt_and_matmul_interleave()
