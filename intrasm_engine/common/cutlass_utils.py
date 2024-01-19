@@ -22,7 +22,7 @@ def prepare_GemmArguments(
     D=None,
     alpha=None,
     beta=None,
-    sync: bool = True,
+    # sync: bool = True, # Unused argument in cutlass
     print_module: bool = False,
     visitor_args: dict = None,
     stream: cuda.CUstream = cuda.CUstream(0),
@@ -111,7 +111,7 @@ def prepare_GemmGroupedArguments(
     D,
     alpha=None,
     beta=None,
-    sync: bool = True,
+    # sync: bool = True, # Unused argument in cutlass
     print_module: bool = False,
 ) -> GemmGroupedArguments:
     """This function is the first step GropuedGemm.run() defined in cutlass/op/gemm_grouped.py cutlass python interface.
