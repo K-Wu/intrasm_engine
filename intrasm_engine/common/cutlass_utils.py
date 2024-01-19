@@ -30,6 +30,7 @@ def prepare_GemmArguments(
     """This function is the first step Gemm.run() defined in cutlass/op/gemm.py cutlass python interface.
     We put them into this function to separate the execution from the argument preparation originally together in GropuedGemm.run().
     This allows us to use CUDAGraphConstructor. Otherwise, the compile in the preparation stage in run() forbid us to use CUDAGraphConstructor.
+    The base cutlass Gemm.run() already supports void-C kernels. Just specify C as None. On the other hand, even though C is specified, it is not used in the kernel.
     """
     plan.run_setup()
     A = plan._verify_tensor(A, plan.A, plan._element_a, plan._layout_a, "A")
@@ -97,7 +98,7 @@ def prepare_GemmArguments(
         D=D,
         output_op=output_op,
         gemm_mode=mode,
-        **kwargs
+        **kwargs,
     )
     return arguments
 
@@ -116,11 +117,19 @@ def prepare_GemmGroupedArguments(
     """This function is the first step GropuedGemm.run() defined in cutlass/op/gemm_grouped.py cutlass python interface.
     We put them into this function to separate the execution from the argument preparation originally together in GropuedGemm.run().
     This allows us to use CUDAGraphConstructor. Otherwise, the malloc in the preparation stage in run() forbid us to use CUDAGraphConstructor.
+    Modified to support void-C kernels: just specify C as [None] * len(A).
+    In current version, even though C is specified, it is not used in the kernel.
     """
     plan.run_setup()
 
     if len(A) != len(B) or len(A) != len(C) or len(A) != len(D):
         raise Exception("Lengths of A, B, C, and D lists must be equal")
+
+    C_is_void = True
+    for c in C:
+        if c is not None:
+            C_is_void = False
+            break
 
     problem_sizes = []
     As, Bs, Cs, Ds = ([None] * len(A) for _ in range(4))
@@ -131,9 +140,10 @@ def prepare_GemmGroupedArguments(
         Bs[i] = plan._verify_tensor(
             B[i], plan.B, plan._element_b, plan._layout_b, "B"
         )
-        Cs[i] = plan._verify_tensor(
-            C[i], plan.C, plan._element_c, plan._layout_c, "C"
-        )
+        if not C_is_void:
+            Cs[i] = plan._verify_tensor(
+                C[i], plan.C, plan._element_c, plan._layout_c, "C"
+            )
         Ds[i] = plan._verify_tensor(
             D[i], plan.D, plan._element_d, plan._layout_d, "D"
         )
@@ -160,20 +170,25 @@ def prepare_GemmGroupedArguments(
             for B in Bs
         )
     )
-    alignment_c = min(
-        (
-            plan.possible_operations.find_alignment(
-                C.shape, plan._layout_c, operand="C"
+
+    plan_compile_kwargs = {
+        "alignment_A": alignment_a,
+        "alignment_B": alignment_b,
+        "print_module": print_module,
+    }
+    if not C_is_void:
+        alignment_c = min(
+            (
+                plan.possible_operations.find_alignment(
+                    C.shape, plan._layout_c, operand="C"
+                )
+                for C in Cs
             )
-            for C in Cs
         )
-    )
+        plan_compile_kwargs["alignment_C"] = alignment_c
     plan.compile(
         plan.tile_description,
-        alignment_A=alignment_a,
-        alignment_B=alignment_b,
-        alignment_C=alignment_c,
-        print_module=print_module,
+        **plan_compile_kwargs,
     )
 
     arguments = GemmGroupedArguments(
