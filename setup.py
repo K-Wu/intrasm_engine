@@ -213,7 +213,9 @@ def setup_requirements() -> Tuple[List[str], List[str], List[str]]:
     """
 
     # Common requirements
-    setup_reqs: List[str] = [
+    setup_reqs: List[str] = []
+    install_reqs: List[str] = [
+        "pydantic",
         "GitPython",
         "cuda-python",
         "pycuda",
@@ -230,7 +232,6 @@ def setup_requirements() -> Tuple[List[str], List[str], List[str]]:
         # TODO: enable the following and test if it works
         # "SparTA @ git+ssh://git@github.com:K-Wu/SparTA@main",
     ]
-    install_reqs: List[str] = ["pydantic"]
     test_reqs: List[str] = [
         "pytest",
     ]
