@@ -19,7 +19,7 @@ def _run_matmul(
     a: torch.Tensor,
     b: torch.Tensor,
     c: torch.Tensor,
-    scratchpad: torch.Tensor,  # Largest size: c * SPLIT_K
+    scratchpad: torch.Tensor | None,  # Largest size: c * SPLIT_K
     # Default values of the following arguments are provided in run_matmul()
     tiling: MatmulTiling,
     acc_ty: tl.dtype,  #
@@ -82,6 +82,7 @@ def _run_matmul(
 def run_matmul(
     a: torch.Tensor,
     b: torch.Tensor,
+    c: torch.Tensor | None = None,
     c_ty: torch.dtype | None = None,
     acc_ty: tl.dtype | None = None,
     ab_dtype: tl.dtype | None = None,  # None means no conversion during A\dotB
@@ -103,7 +104,10 @@ def run_matmul(
     if acc_ty is None:
         # acc_ty = getattr(tl, str(c_ty).split(".")[1]) # tl.dot by default produces fp32 even though a and b are fp16
         acc_ty = tl.float32
-    c = torch.zeros((a.shape[0], b.shape[1]), dtype=c_ty, device=a.device)
+    if c is None:
+        c = torch.zeros((a.shape[0], b.shape[1]), dtype=c_ty, device=a.device)
+
+    scratchpad = None
     if tiling.SPLIT_K > 1:
         # Create scratchpad.
         scratchpad = torch.zeros(
@@ -111,10 +115,9 @@ def run_matmul(
             dtype=c_ty,
             device=a.device,
         )
-    else:
-        scratchpad = torch.zeros(
-            (1, 1), dtype=c_ty, device=a.device
-        )  # Suppress type checker
+    # else:
+    #     scratchpad = torch.zeros((1, 1), dtype=c_ty, device=a.device)
+    #     scratchpad = torch.zeros((1, 1), dtype=c_ty, device=a.device)
 
     current_stream = torch.cuda.current_stream()
     _run_matmul(
