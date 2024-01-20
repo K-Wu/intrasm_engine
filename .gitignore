@@ -19,3 +19,5 @@ CutlassJit/
 *.qdstrm
 out/
 *.txt
+*.out
+*.err

@@ -217,6 +217,7 @@ def setup_requirements() -> Tuple[List[str], List[str], List[str]]:
     install_reqs: List[str] = [
         "pydantic",
         "GitPython",
+        "cupy",
         "cuda-python",
         "pycuda",
         "nvidia-cutlass",
