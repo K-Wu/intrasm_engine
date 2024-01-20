@@ -8,6 +8,7 @@ from intrasm_engine.pytorch.cpp_extensions.cuda_graph_constructor import (
 import cutlass
 from cuda import cuda
 import contextlib
+from functools import partial
 
 
 def gemm_tflops(m, n, k, msec):
@@ -19,13 +20,13 @@ def test_triton_simt_and_torch_tensorop_interleave(
     mt=1280, nt=1024, kt=1024, m=1280, n=1024, k=256, num_nodes_repetition=8
 ):
     def test_non_interleaving(
-        As: list[torch.Tensor], Bs: list[torch.Tensor], matmul_func
-    ):
+        matmul_execs: list[partial],  # list of partial functions
+    ) -> float:
         Cs = []
         constructor = TorchCUDAGraphConstructor()
         for idx in range(num_nodes_repetition):
             constructor.capture_library_call_begin()
-            c = matmul_func(As[idx], Bs[idx])
+            c = matmul_execs[idx]()  # Tensor core
             constructor.capture_library_call_end()
             Cs.append(c)
         constructor.instantiate_graph_exec()
@@ -39,42 +40,20 @@ def test_triton_simt_and_torch_tensorop_interleave(
         constructor.destroy_graph_exec()
         return start_event.elapsed_time(end_event)
 
-    def test_interleaving():
-        As = []
-        Bs = []
-        Cs = []
-        A2s = []
-        B2s = []
-        C2s = []
-        for _ in range(num_nodes_repetition):
-            a = torch.randn(mt, kt, device="cuda", dtype=torch.float16)
-            b = torch.randn(kt, nt, device="cuda", dtype=torch.float16)
-            c = torch.zeros((mt, nt), device="cuda", dtype=torch.float16)
-            a2 = torch.randn(m, k, device="cuda")
-            b2 = torch.randn(k, n, device="cuda")
-            c2 = torch.zeros((m, n), device="cuda")
-            As.append(a)
-            Bs.append(b)
-            Cs.append(c)
-            A2s.append(a2)
-            B2s.append(b2)
-            C2s.append(c2)
+    def test_interleaving(matmul_execs1:partial, matmul_execs2:partial) -> float:
         constructor = TorchCUDAGraphConstructor()
         constructor.register_new_stream()
+        results=[[], []]
         for idx in range(num_nodes_repetition):
             constructor.capture_library_call_begin()
-            # torch.matmul returns the output tensor, i.e., c. Specify it as lhs has no effect but to avoid printing.
-            Cs[idx] = torch.matmul(
-                As[idx], Bs[idx], out=Cs[idx]
-            )  # Tensor core
+            # matmul_exec returns the output tensor. Append it in a list to avoid printing.
+            results[0].append(matmul_execs1[idx]())
             constructor.capture_library_call_end()
         with constructor.registeredStreams[1].torch_stream as cm:
             for idx in range(num_nodes_repetition):
                 constructor.capture_library_call_begin()
-                # run_matmul returns the output tensor, i.e., c2. Specify it as lhs has no effect but explicitly to avoid printing.
-                C2s[idx] = triton_utils.run_matmul(
-                    A2s[idx], B2s[idx], C2s[idx]
-                )  # SIMT
+            # matmul_exec returns the output tensor. Append it in a list to avoid printing.
+                results[1].append(matmul_execs2[idx]())
                 constructor.capture_library_call_end()
         constructor.instantiate_graph_exec()
         start_event = torch.cuda.Event(enable_timing=True)
@@ -85,39 +64,53 @@ def test_triton_simt_and_torch_tensorop_interleave(
         end_event.record()
         constructor.synchronize()
         constructor.destroy_graph_exec()
-        print(f"Interleaved Time event: {start_event.elapsed_time(end_event)}")
-        print(
-            "TFLOPs",
-            num_nodes_repetition
-            * (
-                gemm_tflops(m, n, k, start_event.elapsed_time(end_event))
-                + gemm_tflops(mt, nt, kt, start_event.elapsed_time(end_event))
-            ),
-        )
+        return start_event.elapsed_time(end_event)
 
-    As = [
-        torch.randn(mt, kt, device="cuda", dtype=torch.float16)
-        for _ in range(num_nodes_repetition)
-    ]
-    Bs = [
-        torch.randn(kt, nt, device="cuda", dtype=torch.float16)
-        for _ in range(num_nodes_repetition)
-    ]
+    def get_matmul_execs_tensor_core() -> list[partial]:
+        As = [
+            torch.randn(mt, kt, device="cuda", dtype=torch.float16)
+            for _ in range(num_nodes_repetition)
+        ]
+        Bs = [
+            torch.randn(kt, nt, device="cuda", dtype=torch.float16)
+            for _ in range(num_nodes_repetition)
+        ]
+        Cs = [
+            torch.zeros((mt, nt), device="cuda", dtype=torch.float16)
+            for _ in range(num_nodes_repetition)
+        ]
+        matmul_execs_tc = []
+        for idx in range(num_nodes_repetition):
+            matmul_execs_tc.append(
+                partial(torch.matmul, As[idx], Bs[idx], out=Cs[idx])
+            )
+        return matmul_execs_tc
+    
+    def get_matmul_execs_simt() -> list[partial]:
+        As = [
+            torch.randn(m, k, device="cuda") for _ in range(num_nodes_repetition)
+        ]
+        Bs = [
+            torch.randn(k, n, device="cuda") for _ in range(num_nodes_repetition)
+        ]
+        Cs = [torch.zeros((mt, nt), device="cuda", dtype=torch.float16) for _ in range(num_nodes_repetition)]
+
+        matmul_execs_simt = []
+        for idx in range(num_nodes_repetition):
+            matmul_execs_simt.append(
+                partial(triton_utils.run_matmul, As[idx], Bs[idx], Cs[idx])
+            )
+        return matmul_execs_simt
+
+    matmul_execs_tc = get_matmul_execs_tensor_core()
+    matmul_execs_simt = get_matmul_execs_simt()
+    
     tensor_core_time = test_non_interleaving(  # Tensor core
-        As,
-        Bs,
-        torch.matmul,  # FIXME: This cannot be the first torch.matmul invoked; otherwise cublas is not initialized. The current workaround is to print(torch.cuda.current_blas_handle()) before calling this function.
+        matmul_execs_tc,  # FIXME: This cannot be the first torch.matmul invoked; otherwise cublas is not initialized. The current workaround is to print(torch.cuda.current_blas_handle()) before calling this function.
     )
-    As = [
-        torch.randn(m, k, device="cuda") for _ in range(num_nodes_repetition)
-    ]
-    Bs = [
-        torch.randn(k, n, device="cuda") for _ in range(num_nodes_repetition)
-    ]
+    
     simt_time = test_non_interleaving(  # SIMT
-        As,
-        Bs,
-        triton_utils.run_matmul,
+        matmul_execs_simt,
     )
     print(
         "Non-interleaved time event: ",
@@ -135,7 +128,20 @@ def test_triton_simt_and_torch_tensorop_interleave(
             + gemm_tflops(mt, nt, kt, tensor_core_time + simt_time)
         ),
     )
-    test_interleaving()
+
+    matmul_execs_tc = get_matmul_execs_tensor_core()
+    matmul_execs_simt = get_matmul_execs_simt()
+    
+    interleave_time = test_interleaving(matmul_execs_tc, matmul_execs_simt)
+    print(f"Interleaved Time event: {interleave_time}")
+    print(
+        "TFLOPs",
+        num_nodes_repetition
+        * (
+            gemm_tflops(m, n, k, interleave_time)
+            + gemm_tflops(mt, nt, kt, interleave_time)
+        ),
+    )
 
 
 def test_cutlass_simt_and_tensorop_interleave(
@@ -633,12 +639,12 @@ def test_cutlass_tensorop_big_and_small_interleave(
 
 
 if __name__ == "__main__":
-    # print(
-    #     "Triton SIMT in parallel to Torch TensorOp. Repeat with different data"
-    # )
-    # test_triton_simt_and_torch_tensorop_interleave()
-    # print("Cutlass SIMT in parallel to TensorOp. Repeat with different data")
-    # test_cutlass_simt_and_tensorop_interleave()
+    print(
+        "Triton SIMT in parallel to Torch TensorOp. Repeat with different data"
+    )
+    test_triton_simt_and_torch_tensorop_interleave()
+    print("Cutlass SIMT in parallel to TensorOp. Repeat with different data")
+    test_cutlass_simt_and_tensorop_interleave()
     print(
         "Triton SIMT in parallel Cutlass to TensorOp. Repeat with different"
         " data"
