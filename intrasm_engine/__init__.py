@@ -56,10 +56,21 @@ def initialize_current_streams():
 
 
 initialize_current_streams()
+print(
+    (
+        "Print handle to force cublas initialization (otherwise first matmul"
+        " captured in the graph may fail):"
+    ),
+    torch.cuda.current_blas_handle(),
+)
 
 from . import common
 from . import pytorch
+from .pytorch import utils as pytorch_utils
 
 torch.classes.load_library(
     "intrasm_engine_extensions.cpython-311-x86_64-linux-gnu.so"
 )
+
+# pytorch_utils.set_tf32_use_tensor_core()
+pytorch_utils.set_float_16_reduced_precision()
