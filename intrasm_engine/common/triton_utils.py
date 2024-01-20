@@ -1,3 +1,4 @@
+from __future__ import annotations
 from triton_autotuning.matmul_lib import (
     MatmulTiling,
     MatrixLayout,

@@ -1,7 +1,7 @@
 # Based on the peft library that uses get_submodule method and setattr built-in method to find the layer and conduct the replacement.
 # Reference: the answer at https://discuss.huggingface.co/t/how-can-i-replace-modules-in-a-pretrained-model/16338/4. An alternative and simpler solution is in the previous answer in the same thread.
-
 # parent, target, target_name = _get_submodules(model, key)
+from __future__ import annotations
 from peft.utils.other import _get_submodules
 
 # check_target_module_exists(config, key: str) -> bool | re.Match[str] | None
