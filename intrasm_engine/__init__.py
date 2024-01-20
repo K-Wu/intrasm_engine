@@ -67,9 +67,9 @@ print(
 from . import common
 from . import pytorch
 from .pytorch import utils as pytorch_utils
-
+import sys
 torch.classes.load_library(
-    "intrasm_engine_extensions.cpython-311-x86_64-linux-gnu.so"
+    f"intrasm_engine_extensions.cpython-{sys.version_info.major}{sys.version_info.minor}-x86_64-linux-gnu.so"
 )
 
 # pytorch_utils.set_tf32_use_tensor_core()
