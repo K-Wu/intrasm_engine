@@ -313,12 +313,12 @@ def test_cutlass_simt_and_tensorop_interleave(
 
 def test_triton_simt_and_cutlass_tensorop_interleave(
     # mt=2560, nt=1024, kt=512, m=1280, n=512, k=512
-    mt=1280,
+    mt=2560,
     nt=1024,
-    kt=768,
+    kt=1572,
     m=1280,
-    n=1024,
-    k=512,
+    n=512,
+    k=1024,
     num_nodes_repetition=8,
 ):
     def test_canonical_procedure(do_tensor_core: bool, do_simt: bool):
@@ -358,8 +358,8 @@ def test_triton_simt_and_cutlass_tensorop_interleave(
 
             for _ in range(num_nodes_repetition):
                 plan_tc.tile_description = {
-                    "threadblock_shape": [64, 128, 32],
-                    "warp_count": [2, 2, 1],
+                    "threadblock_shape": [128, 256, 32],
+                    "warp_count": [2, 4, 1],
                     "stages": 3,
                 }
                 plan_tcs.append(plan_tc)
@@ -462,10 +462,10 @@ def test_cutlass_tensorop_big_and_small_interleave(
     mb=2560,
     # nb=2048,
     nb=1024,
-    kb=768,
-    m=640,
+    kb=1572,
+    m=1280,
     n=512,
-    k=3072,
+    k=1024,
     num_nodes_repetition=8,
 ):
     def test_canonical_procedure(do_big: bool, do_small: bool):
@@ -542,7 +542,7 @@ def test_cutlass_tensorop_big_and_small_interleave(
                 # for td in plan_simt.tile_descriptions():
                 #     print(td)
                 plan_simt.tile_description = {
-                    "threadblock_shape": [64, 64, 32],
+                    "threadblock_shape": [128, 64, 32],
                     "warp_count": [2, 2, 1],
                     "stages": 3,
                 }
@@ -639,12 +639,12 @@ if __name__ == "__main__":
     # test_triton_simt_and_torch_tensorop_interleave()
     # print("Cutlass SIMT in parallel to TensorOp. Repeat with different data")
     # test_cutlass_simt_and_tensorop_interleave()
-    # print(
-    #     "Triton SIMT in parallel Cutlass to TensorOp. Repeat with different"
-    #     " data"
-    # )
-    # test_triton_simt_and_cutlass_tensorop_interleave()
-    # print(
-    #     "Cutlass TensorOp big in parallel to small. Repeat with different data"
-    # )
+    print(
+        "Triton SIMT in parallel Cutlass to TensorOp. Repeat with different"
+        " data"
+    )
+    test_triton_simt_and_cutlass_tensorop_interleave()
+    print(
+        "Cutlass TensorOp big in parallel to small. Repeat with different data"
+    )
     test_cutlass_tensorop_big_and_small_interleave()
