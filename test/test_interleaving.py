@@ -9,7 +9,6 @@ from intrasm_engine.pytorch.cpp_extensions.cuda_graph_constructor import (
 )
 import cutlass
 from cuda import cuda
-import contextlib
 from functools import partial
 from triton_autotuning.matmul_lib import (
     MatmulTiling,
@@ -229,23 +228,21 @@ def test_non_interleaving(
 
 
 def test_interleaving(
-    matmul_execs1: partial,
-    matmul_execs2: partial,
-    constructor: TorchCUDAGraphConstructor,
+    *matmul_execs_args: list[partial], constructor: TorchCUDAGraphConstructor
 ) -> float:
-    repeat_times = len(matmul_execs1)
-    results = [[], []]
-    for idx in range(repeat_times):
-        constructor.capture_library_call_begin()
-        # matmul_exec returns the output tensor. Append it in a list to avoid printing.
-        results[0].append(matmul_execs1[idx]())
-        constructor.capture_library_call_end()
-    with constructor.registeredStreams[1].torch_stream as cm:
-        for idx in range(repeat_times):
-            constructor.capture_library_call_begin()
-            # matmul_exec returns the output tensor. Append it in a list to avoid printing.
-            results[1].append(matmul_execs2[idx]())
-            constructor.capture_library_call_end()
+    # assert len(matmul_execs_args) == 2
+    assert len(constructor.registeredStreams) == len(matmul_execs_args)
+    repeat_times = len(matmul_execs_args[0])
+    results = [[] for _ in range(len(matmul_execs_args))]
+    for idx_stream in range(len(constructor.registeredStreams)):
+        with constructor.registeredStreams[idx_stream].torch_stream as cm:
+            for idx in range(repeat_times):
+                constructor.capture_library_call_begin()
+                # matmul_exec returns the output tensor. Append it in a list to avoid printing.
+                results[idx_stream].append(
+                    matmul_execs_args[idx_stream][idx]()
+                )
+                constructor.capture_library_call_end()
     constructor.instantiate_graph_exec()
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)
@@ -302,7 +299,7 @@ def test_triton_simt_and_torch_tensorop_interleave(
     constructor = TorchCUDAGraphConstructor()
     constructor.register_new_stream()
     interleave_time = test_interleaving(
-        matmul_execs_tc, matmul_execs_simt, constructor
+        matmul_execs_tc, matmul_execs_simt, constructor=constructor
     )
     print(f"Interleaved Time event: {interleave_time}")
     print(
@@ -368,7 +365,7 @@ def test_cutlass_simt_and_tensorop_interleave(
         )
 
     interleaving_time = test_interleaving(
-        matmul_execs_tc, matmul_execs_simt, constructor
+        matmul_execs_tc, matmul_execs_simt, constructor=constructor
     )
 
     # interleaving_time = test_canonical_procedure(
@@ -436,7 +433,7 @@ def test_triton_simt_and_cutlass_tensorop_interleave(
         matmul_execs_simt = get_matmul_execs_triton_simt(m, n, k, repeat_times)
 
     interleaving_time = test_interleaving(
-        matmul_execs_tc, matmul_execs_simt, constructor
+        matmul_execs_tc, matmul_execs_simt, constructor=constructor
     )
     # interleaving_time = test_canonical_procedure(
     #     do_simt=True, do_tensor_core=True
@@ -506,7 +503,7 @@ def test_cutlass_tensorop_big_and_small_interleave(
         )
 
     interleaving_time = test_interleaving(
-        matmul_execs_tc_big, matmul_execs_tc, constructor
+        matmul_execs_tc_big, matmul_execs_tc, constructor=constructor
     )
     # interleaving_time = test_canonical_procedure(do_small=True, do_big=True)
     print(
