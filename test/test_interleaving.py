@@ -9,12 +9,52 @@ import cutlass
 from cuda import cuda
 import contextlib
 from functools import partial
-
+from triton_autotuning.matmul_lib import (
+    MatmulTiling,
+    MatrixLayout,
+)
 
 def gemm_tflops(m, n, k, msec):
     #  The flops() at https://github.com/NVIDIA/cutlass/blob/b4b5b110704f4d706a78b190ffadf0e4a86f8289/tools/profiler/src/gemm_operation_profiler.cu seems to count A*B+C. We count A*B only.
     return 2 * (m * n * k) / (msec * 1e-3) / 1e12
 
+
+
+def get_matmul_execs_torch_tensor_core(mt, nt, kt, num_nodes_repetition) -> list[partial]:
+    As = [
+        torch.randn(mt, kt, device="cuda", dtype=torch.float16)
+        for _ in range(num_nodes_repetition)
+    ]
+    Bs = [
+        torch.randn(kt, nt, device="cuda", dtype=torch.float16)
+        for _ in range(num_nodes_repetition)
+    ]
+    Cs = [
+        torch.zeros((mt, nt), device="cuda", dtype=torch.float16)
+        for _ in range(num_nodes_repetition)
+    ]
+    matmul_execs_tc = []
+    for idx in range(num_nodes_repetition):
+        matmul_execs_tc.append(
+            partial(torch.matmul, As[idx], Bs[idx], out=Cs[idx])
+        )
+    return matmul_execs_tc
+
+def get_matmul_execs_triton_simt(m, n, k, num_nodes_repetition) -> list[partial]:
+    As = [
+        torch.randn(m, k, device="cuda") for _ in range(num_nodes_repetition)
+    ]
+    Bs = [
+        torch.randn(k, n, device="cuda") for _ in range(num_nodes_repetition)
+    ]
+    Cs = [torch.zeros((m, n), device="cuda", dtype=torch.float16) for _ in range(num_nodes_repetition)]
+
+    matmul_execs_simt = []
+    for idx in range(num_nodes_repetition):
+        matmul_execs_simt.append(
+            partial(triton_utils.run_matmul, As[idx], Bs[idx], Cs[idx])
+        )
+    return matmul_execs_simt
 
 def test_triton_simt_and_torch_tensorop_interleave(
     mt=1280, nt=1024, kt=1024, m=1280, n=1024, k=256, num_nodes_repetition=8
@@ -66,44 +106,9 @@ def test_triton_simt_and_torch_tensorop_interleave(
         constructor.destroy_graph_exec()
         return start_event.elapsed_time(end_event)
 
-    def get_matmul_execs_tensor_core() -> list[partial]:
-        As = [
-            torch.randn(mt, kt, device="cuda", dtype=torch.float16)
-            for _ in range(num_nodes_repetition)
-        ]
-        Bs = [
-            torch.randn(kt, nt, device="cuda", dtype=torch.float16)
-            for _ in range(num_nodes_repetition)
-        ]
-        Cs = [
-            torch.zeros((mt, nt), device="cuda", dtype=torch.float16)
-            for _ in range(num_nodes_repetition)
-        ]
-        matmul_execs_tc = []
-        for idx in range(num_nodes_repetition):
-            matmul_execs_tc.append(
-                partial(torch.matmul, As[idx], Bs[idx], out=Cs[idx])
-            )
-        return matmul_execs_tc
-    
-    def get_matmul_execs_simt() -> list[partial]:
-        As = [
-            torch.randn(m, k, device="cuda") for _ in range(num_nodes_repetition)
-        ]
-        Bs = [
-            torch.randn(k, n, device="cuda") for _ in range(num_nodes_repetition)
-        ]
-        Cs = [torch.zeros((mt, nt), device="cuda", dtype=torch.float16) for _ in range(num_nodes_repetition)]
 
-        matmul_execs_simt = []
-        for idx in range(num_nodes_repetition):
-            matmul_execs_simt.append(
-                partial(triton_utils.run_matmul, As[idx], Bs[idx], Cs[idx])
-            )
-        return matmul_execs_simt
-
-    matmul_execs_tc = get_matmul_execs_tensor_core()
-    matmul_execs_simt = get_matmul_execs_simt()
+    matmul_execs_tc = get_matmul_execs_torch_tensor_core(mt, nt, kt, num_nodes_repetition)
+    matmul_execs_simt = get_matmul_execs_triton_simt(m, n, k, num_nodes_repetition)
     
     tensor_core_time = test_non_interleaving(  # Tensor core
         matmul_execs_tc,  # FIXME: This cannot be the first torch.matmul invoked; otherwise cublas is not initialized. The current workaround is to print(torch.cuda.current_blas_handle()) before calling this function.
@@ -129,8 +134,8 @@ def test_triton_simt_and_torch_tensorop_interleave(
         ),
     )
 
-    matmul_execs_tc = get_matmul_execs_tensor_core()
-    matmul_execs_simt = get_matmul_execs_simt()
+    matmul_execs_tc = get_matmul_execs_torch_tensor_core(mt, nt, kt, num_nodes_repetition)
+    matmul_execs_simt = get_matmul_execs_triton_simt(m, n, k, num_nodes_repetition)
     
     interleave_time = test_interleaving(matmul_execs_tc, matmul_execs_simt)
     print(f"Interleaved Time event: {interleave_time}")
@@ -179,13 +184,6 @@ def test_cutlass_simt_and_tensorop_interleave(
                     element_C=cutlass.DataType.void,
                     element_accumulator=cutlass.DataType.f16,
                 )
-                # for td in plan_tc.tile_descriptions():
-                #     print(td)
-                # plan_tc.tile_description = {
-                #     "threadblock_shape": [128, 256, 32],
-                #     "warp_count": [2, 4, 1],
-                #     "stages": 3,
-                # }
                 plan_tc.tile_description = {
                     "threadblock_shape": [64, 128, 32],
                     "warp_count": [2, 2, 1],
@@ -319,12 +317,12 @@ def test_cutlass_simt_and_tensorop_interleave(
 
 def test_triton_simt_and_cutlass_tensorop_interleave(
     # mt=2560, nt=1024, kt=512, m=1280, n=512, k=512
-    mt=2560,
+    mt=128*27,
     nt=1024,
-    kt=1572,
-    m=1280,
+    kt=4096,
+    m=(3456  + 6912 -2 * 128*27),
     n=512,
-    k=1024,
+    k=256,
     num_nodes_repetition=8,
 ):
     def test_canonical_procedure(do_tensor_core: bool, do_simt: bool):
@@ -348,26 +346,21 @@ def test_triton_simt_and_cutlass_tensorop_interleave(
                 As.append(a)
                 Bs.append(b)
                 Cs.append(c)
-            plan_tc = cutlass.op.Gemm(
-                element=torch.float16,
-                layout=cutlass.LayoutType.RowMajor,
-                element_C=cutlass.DataType.void,
-                element_accumulator=cutlass.DataType.f16,
-            )
-            # for td in plan_tc.tile_descriptions():
-            #     print(td)
-            # plan_tc.tile_description = {
-            #     "threadblock_shape": [128, 256, 32],
-            #     "warp_count": [2, 4, 1],
-            #     "stages": 3,
-            # }
-
-            for _ in range(num_nodes_repetition):
+                plan_tc = cutlass.op.Gemm(
+                    element=torch.float16,
+                    layout_A=cutlass.LayoutType.ColumnMajor,
+                    layout_B=cutlass.LayoutType.RowMajor,
+                    layout_C=cutlass.LayoutType.RowMajor,
+                    element_C=cutlass.DataType.void,
+                    element_accumulator=cutlass.DataType.f16,
+                )
                 plan_tc.tile_description = {
                     "threadblock_shape": [128, 256, 32],
                     "warp_count": [2, 4, 1],
                     "stages": 3,
                 }
+                # for td in plan_tc.tile_descriptions():
+                #     print(td)
                 plan_tcs.append(plan_tc)
                 arguments_tc = cutlass_utils.prepare_GemmArguments(
                     plan_tc,
@@ -408,7 +401,18 @@ def test_triton_simt_and_cutlass_tensorop_interleave(
                     # SIMT
                     # run_matmul returns the output tensor, i.e., c2. Specify it as lhs has no effect but explicitly to avoid printing.
                     C2s[idx_rep] = triton_utils.run_matmul(
-                        A2s[idx_rep], B2s[idx_rep], C2s[idx_rep]
+                        A2s[idx_rep], B2s[idx_rep], C2s[idx_rep],
+                        tiling = MatmulTiling(
+                        128,
+                        128,
+                        32,
+                        1,
+                        MatrixLayout.COLUMN_MAJOR,
+                        MatrixLayout.ROW_MAJOR,
+                        MatrixLayout.ROW_MAJOR,
+                        2,
+                        4,
+                    )
                     )
                     constructor.capture_library_call_end()
 
@@ -465,11 +469,11 @@ def test_triton_simt_and_cutlass_tensorop_interleave(
 
 def test_cutlass_tensorop_big_and_small_interleave(
     # mt=2560, nt=1024, kt=512, m=1280, n=512, k=512
-    mb=2560,
+    mb=128*27*8,
     # nb=2048,
-    nb=1024,
-    kb=1572,
-    m=1280,
+    nb=1536,
+    kb=4096,
+    m=128*27,# 3456 + 6912 -2 * 128*27,
     n=512,
     k=1024,
     num_nodes_repetition=8,
@@ -495,7 +499,9 @@ def test_cutlass_tensorop_big_and_small_interleave(
                 c = torch.randn(mb, nb, device="cuda", dtype=torch.float16)
                 plan_tc = cutlass.op.Gemm(
                     element=torch.float16,
-                    layout=cutlass.LayoutType.RowMajor,
+                    layout_A=cutlass.LayoutType.ColumnMajor,
+                    layout_B=cutlass.LayoutType.RowMajor,
+                    layout_C=cutlass.LayoutType.RowMajor,
                     element_C=cutlass.DataType.void,
                     element_accumulator=cutlass.DataType.f16,
                 )
@@ -507,8 +513,8 @@ def test_cutlass_tensorop_big_and_small_interleave(
                 #     "stages": 3,
                 # }
                 plan_tc.tile_description = {
-                    "threadblock_shape": [128, 256, 32],
-                    "warp_count": [2, 4, 1],
+                    "threadblock_shape": [128, 128, 32],
+                    "warp_count": [2, 2, 1],
                     "stages": 3,
                 }
                 # plan_tc.tile_description = {
@@ -540,7 +546,9 @@ def test_cutlass_tensorop_big_and_small_interleave(
                 c2 = torch.randn(m, n, device="cuda", dtype=torch.float16)
                 plan_simt = cutlass.op.Gemm(
                     element=torch.float16,
-                    layout=cutlass.LayoutType.RowMajor,
+                    layout_A=cutlass.LayoutType.ColumnMajor,
+                    layout_B=cutlass.LayoutType.RowMajor,
+                    layout_C=cutlass.LayoutType.RowMajor,
                     element_C=cutlass.DataType.void,
                     element_accumulator=cutlass.DataType.f16,
                 )
@@ -548,8 +556,8 @@ def test_cutlass_tensorop_big_and_small_interleave(
                 # for td in plan_simt.tile_descriptions():
                 #     print(td)
                 plan_simt.tile_description = {
-                    "threadblock_shape": [128, 64, 32],
-                    "warp_count": [2, 2, 1],
+                    "threadblock_shape": [128, 128, 32],# [128, 64, 32],
+                    "warp_count": [2, 2, 1],#[2, 2, 1],
                     "stages": 3,
                 }
                 if do_big:
