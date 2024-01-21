@@ -44,8 +44,74 @@ def get_matmul_execs_torch_tensor_core(
     return matmul_execs_tc
 
 
+def _get_matmul_execs_cutlass_tensor_core_f32(
+    mt, nt, kt, repeat_times, tile_description: dict[str, Any] | None = None
+) -> list[partial]:
+    As = [
+        torch.randn(mt, kt, device="cuda", dtype=torch.float32)
+        for _ in range(repeat_times)
+    ]
+    Bs = [
+        torch.randn(kt, nt, device="cuda", dtype=torch.float32)
+        for _ in range(repeat_times)
+    ]
+    Cs = [
+        torch.randn(mt, nt, device="cuda", dtype=torch.float32)
+        for _ in range(repeat_times)
+    ]
+    plan_tcs = [
+        cutlass.op.Gemm(
+            element=torch.float32,
+            layout=cutlass.LayoutType.RowMajor,
+            element_C=cutlass.DataType.void,
+            element_accumulator=cutlass.DataType.f32,
+        )
+        for _ in range(repeat_times)
+    ]
+    # for td in plan_tcs[0].tile_descriptions():
+    #     print(td)
+    if tile_description is not None:
+        for idx in range(repeat_times):
+            plan_tcs[idx].tile_description = tile_description
+    arguments_tcs = [
+        cutlass_utils.prepare_GemmArguments(
+            plan_tcs[idx],
+            As[idx],
+            Bs[idx],
+            None,
+            Cs[idx],
+            print_module=False,
+            stream=cuda.CUstream(
+                init_value=torch.cuda.current_stream().cuda_stream
+            ),
+        )
+        for idx in range(repeat_times)
+    ]
+    matmul_execs = [
+        partial(plan_tcs[idx].operation.run, arguments_tcs[idx])
+        for idx in range(repeat_times)
+    ]
+    return matmul_execs
+
+
+def get_matmul_execs_cutlass_tensor_core_f32(
+    mt, nt, kt, repeat_times
+) -> list[partial]:
+    return _get_matmul_execs_cutlass_tensor_core_f32(
+        mt,
+        nt,
+        kt,
+        repeat_times,
+        {
+            "threadblock_shape": [128, 128, 32],
+            "warp_count": [2, 2, 1],
+            "stages": 3,
+        },
+    )
+
+
 def _get_matmul_execs_cutlass_tensor_core(
-    mt, nt, kt, repeat_times, tile_description: dict[str, Any]
+    mt, nt, kt, repeat_times, tile_description: dict[str, Any] | None = None
 ) -> list[partial]:
     As = [
         torch.randn(mt, kt, device="cuda", dtype=torch.float16)
@@ -68,8 +134,9 @@ def _get_matmul_execs_cutlass_tensor_core(
         )
         for _ in range(repeat_times)
     ]
-    for idx in range(repeat_times):
-        plan_tcs[idx].tile_description = tile_description
+    if tile_description is not None:
+        for idx in range(repeat_times):
+            plan_tcs[idx].tile_description = tile_description
     arguments_tcs = [
         cutlass_utils.prepare_GemmArguments(
             plan_tcs[idx],
@@ -204,7 +271,44 @@ def get_matmul_execs_triton_simt(
     return matmul_execs_simt
 
 
-def test_non_interleaving(
+def get_matmul_execs_triton_simt_f32(
+    m, n, k, num_nodes_repetition
+) -> list[partial]:
+    As = [
+        torch.randn(m, k, device="cuda") for _ in range(num_nodes_repetition)
+    ]
+    Bs = [
+        torch.randn(k, n, device="cuda") for _ in range(num_nodes_repetition)
+    ]
+    Cs = [
+        torch.zeros((m, n), device="cuda") for _ in range(num_nodes_repetition)
+    ]
+
+    matmul_execs_simt = []
+    for idx in range(num_nodes_repetition):
+        matmul_execs_simt.append(
+            partial(
+                triton_utils.run_matmul,
+                As[idx],
+                Bs[idx],
+                Cs[idx],
+                tiling=MatmulTiling(
+                    128,
+                    64,
+                    64,
+                    1,
+                    MatrixLayout.COLUMN_MAJOR,
+                    MatrixLayout.ROW_MAJOR,
+                    MatrixLayout.ROW_MAJOR,
+                    2,
+                    4,
+                ),
+            )
+        )
+    return matmul_execs_simt
+
+
+def run_non_interleaving(
     matmul_execs: list[partial],  # list of partial functions
 ) -> float:
     repeat_times = len(matmul_execs)
@@ -227,7 +331,7 @@ def test_non_interleaving(
     return start_event.elapsed_time(end_event)
 
 
-def test_interleaving(
+def run_interleaving(
     *matmul_execs_args: list[partial], constructor: TorchCUDAGraphConstructor
 ) -> float:
     # assert len(matmul_execs_args) == 2
@@ -265,11 +369,11 @@ def test_triton_simt_and_torch_tensorop_interleave(
         m, n, k, num_nodes_repetition
     )
 
-    tensor_core_time = test_non_interleaving(  # Tensor core
+    tensor_core_time = run_non_interleaving(  # Tensor core
         matmul_execs_tc,  # FIXME: This cannot be the first torch.matmul invoked; otherwise cublas is not initialized. The current workaround is to print(torch.cuda.current_blas_handle()) before calling this function.
     )
 
-    simt_time = test_non_interleaving(  # SIMT
+    simt_time = run_non_interleaving(  # SIMT
         matmul_execs_simt,
     )
     print(
@@ -298,7 +402,7 @@ def test_triton_simt_and_torch_tensorop_interleave(
 
     constructor = TorchCUDAGraphConstructor()
     constructor.register_new_stream()
-    interleave_time = test_interleaving(
+    interleave_time = run_interleaving(
         matmul_execs_tc, matmul_execs_simt, constructor=constructor
     )
     print(f"Interleaved Time event: {interleave_time}")
@@ -312,7 +416,7 @@ def test_triton_simt_and_torch_tensorop_interleave(
     )
 
 
-def test_cutlass_simt_and_tensorop_interleave(
+def test_cutlass_simt_f32_and_tensorop_interleave(
     # mt=2560, nt=1024, kt=512, m=1280, n=512, k=512
     mt=1280,
     nt=1024,
@@ -328,8 +432,8 @@ def test_cutlass_simt_and_tensorop_interleave(
     matmul_execs_simt = get_matmul_execs_cutlass_simt_f32(
         m, n, k, repeat_times
     )
-    tensor_core_time = test_non_interleaving(matmul_execs_tc)
-    simt_time = test_non_interleaving(matmul_execs_simt)
+    tensor_core_time = run_non_interleaving(matmul_execs_tc)
+    simt_time = run_non_interleaving(matmul_execs_simt)
 
     # tensor_core_time = test_canonical_procedure(  # Tensor core
     #     do_simt=False, do_tensor_core=True
@@ -364,7 +468,7 @@ def test_cutlass_simt_and_tensorop_interleave(
             m, n, k, repeat_times
         )
 
-    interleaving_time = test_interleaving(
+    interleaving_time = run_interleaving(
         matmul_execs_tc, matmul_execs_simt, constructor=constructor
     )
 
@@ -399,8 +503,8 @@ def test_triton_simt_and_cutlass_tensorop_interleave(
         mt, nt, kt, repeat_times
     )
     matmul_execs_simt = get_matmul_execs_triton_simt(m, n, k, repeat_times)
-    tensor_core_time = test_non_interleaving(matmul_execs_tc)
-    simt_time = test_non_interleaving(matmul_execs_simt)
+    tensor_core_time = run_non_interleaving(matmul_execs_tc)
+    simt_time = run_non_interleaving(matmul_execs_simt)
     # tensor_core_time = test_canonical_procedure(  # Tensor core
     #     do_simt=False, do_tensor_core=True
     # )
@@ -432,7 +536,161 @@ def test_triton_simt_and_cutlass_tensorop_interleave(
     with constructor.registeredStreams[1].torch_stream as cm:
         matmul_execs_simt = get_matmul_execs_triton_simt(m, n, k, repeat_times)
 
-    interleaving_time = test_interleaving(
+    interleaving_time = run_interleaving(
+        matmul_execs_tc, matmul_execs_simt, constructor=constructor
+    )
+    # interleaving_time = test_canonical_procedure(
+    #     do_simt=True, do_tensor_core=True
+    # )
+    print(
+        "Interleaved time event: ",
+        interleaving_time,
+    )
+    print(
+        "TFLOPs",
+        repeat_times
+        * (
+            gemm_tflops(m, n, k, interleaving_time)
+            + gemm_tflops(mt, nt, kt, interleaving_time)
+        ),
+    )
+
+
+def test_triton_simt_f32_and_cutlass_tensorop_f32_interleave(
+    # A100
+    # mt=128 * 27,
+    # nt=1024,
+    # kt=4096,
+    # m=(3456 + 6912 - 2 * 128 * 27),
+    # n=256,
+    # k=256,
+    # RTX 3090
+    mt=128 * 41,
+    nt=256,
+    kt=4096,
+    m=128 * 41,
+    n=64 * 2,
+    k=1024,
+    repeat_times=8,
+):
+    matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_f32(
+        mt, nt, kt, repeat_times
+    )
+    matmul_execs_simt = get_matmul_execs_triton_simt_f32(m, n, k, repeat_times)
+    tensor_core_time = run_non_interleaving(matmul_execs_tc)
+    simt_time = run_non_interleaving(matmul_execs_simt)
+    # tensor_core_time = test_canonical_procedure(  # Tensor core
+    #     do_simt=False, do_tensor_core=True
+    # )
+    # simt_time = test_canonical_procedure(  # SIMT
+    #     do_simt=True, do_tensor_core=False
+    # )
+    print(
+        "Non-interleaved time event: ",
+        tensor_core_time,
+        simt_time,
+        tensor_core_time + simt_time,
+    )
+    print(
+        "TFLOPs",
+        repeat_times * gemm_tflops(mt, nt, kt, tensor_core_time),
+        repeat_times * gemm_tflops(m, n, k, simt_time),
+        repeat_times
+        * (
+            gemm_tflops(m, n, k, tensor_core_time + simt_time)
+            + gemm_tflops(mt, nt, kt, tensor_core_time + simt_time)
+        ),
+    )
+
+    constructor = TorchCUDAGraphConstructor()
+    constructor.register_new_stream()
+    matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_f32(
+        mt, nt, kt, repeat_times
+    )
+    with constructor.registeredStreams[1].torch_stream as cm:
+        matmul_execs_simt = get_matmul_execs_triton_simt_f32(
+            m, n, k, repeat_times
+        )
+
+    interleaving_time = run_interleaving(
+        matmul_execs_tc, matmul_execs_simt, constructor=constructor
+    )
+    # interleaving_time = test_canonical_procedure(
+    #     do_simt=True, do_tensor_core=True
+    # )
+    print(
+        "Interleaved time event: ",
+        interleaving_time,
+    )
+    print(
+        "TFLOPs",
+        repeat_times
+        * (
+            gemm_tflops(m, n, k, interleaving_time)
+            + gemm_tflops(mt, nt, kt, interleaving_time)
+        ),
+    )
+
+
+def test_cutlass_simt_f32_and_tensorop_f32_interleave(
+    # A100
+    # mt=128 * 27,
+    # nt=1024,
+    # kt=4096,
+    # m=(3456 + 6912 - 2 * 128 * 27),
+    # n=256,
+    # k=256,
+    # RTX 3090
+    mt=128 * 41,
+    nt=256,
+    kt=4096,
+    m=128 * 41,
+    n=128 * 2,
+    k=1024,
+    repeat_times=8,
+):
+    matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_f32(
+        mt, nt, kt, repeat_times
+    )
+    matmul_execs_simt = get_matmul_execs_cutlass_simt_f32(
+        m, n, k, repeat_times
+    )
+    tensor_core_time = run_non_interleaving(matmul_execs_tc)
+    simt_time = run_non_interleaving(matmul_execs_simt)
+    # tensor_core_time = test_canonical_procedure(  # Tensor core
+    #     do_simt=False, do_tensor_core=True
+    # )
+    # simt_time = test_canonical_procedure(  # SIMT
+    #     do_simt=True, do_tensor_core=False
+    # )
+    print(
+        "Non-interleaved time event: ",
+        tensor_core_time,
+        simt_time,
+        tensor_core_time + simt_time,
+    )
+    print(
+        "TFLOPs",
+        repeat_times * gemm_tflops(mt, nt, kt, tensor_core_time),
+        repeat_times * gemm_tflops(m, n, k, simt_time),
+        repeat_times
+        * (
+            gemm_tflops(m, n, k, tensor_core_time + simt_time)
+            + gemm_tflops(mt, nt, kt, tensor_core_time + simt_time)
+        ),
+    )
+
+    constructor = TorchCUDAGraphConstructor()
+    constructor.register_new_stream()
+    matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_f32(
+        mt, nt, kt, repeat_times
+    )
+    with constructor.registeredStreams[1].torch_stream as cm:
+        matmul_execs_simt = get_matmul_execs_cutlass_simt_f32(
+            m, n, k, repeat_times
+        )
+
+    interleaving_time = run_interleaving(
         matmul_execs_tc, matmul_execs_simt, constructor=constructor
     )
     # interleaving_time = test_canonical_procedure(
@@ -469,8 +727,8 @@ def test_cutlass_tensorop_small_and_small_interleave(
     matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_small(
         m, n, k, repeat_times
     )
-    tensor_core_big_time = test_non_interleaving(matmul_execs_tc_big)
-    tensor_core_time = test_non_interleaving(matmul_execs_tc)
+    tensor_core_big_time = run_non_interleaving(matmul_execs_tc_big)
+    tensor_core_time = run_non_interleaving(matmul_execs_tc)
     # tensor_core_time = test_canonical_procedure(  # Tensor core
     #     do_small=False, do_big=True
     # )
@@ -502,7 +760,7 @@ def test_cutlass_tensorop_small_and_small_interleave(
             m, n, k, repeat_times
         )
 
-    interleaving_time = test_interleaving(
+    interleaving_time = run_interleaving(
         matmul_execs_tc_big, matmul_execs_tc, constructor=constructor
     )
     # interleaving_time = test_canonical_procedure(do_small=True, do_big=True)
@@ -537,8 +795,8 @@ def test_cutlass_tensorop_big_and_small_interleave(
     matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_small(
         m, n, k, repeat_times
     )
-    tensor_core_big_time = test_non_interleaving(matmul_execs_tc_big)
-    tensor_core_time = test_non_interleaving(matmul_execs_tc)
+    tensor_core_big_time = run_non_interleaving(matmul_execs_tc_big)
+    tensor_core_time = run_non_interleaving(matmul_execs_tc)
     # tensor_core_time = test_canonical_procedure(  # Tensor core
     #     do_small=False, do_big=True
     # )
@@ -570,7 +828,7 @@ def test_cutlass_tensorop_big_and_small_interleave(
             m, n, k, repeat_times
         )
 
-    interleaving_time = test_interleaving(
+    interleaving_time = run_interleaving(
         matmul_execs_tc_big, matmul_execs_tc, constructor=constructor
     )
     # interleaving_time = test_canonical_procedure(do_small=True, do_big=True)
@@ -589,23 +847,33 @@ def test_cutlass_tensorop_big_and_small_interleave(
 
 
 if __name__ == "__main__":
+    # print(
+    #     "Triton SIMT in parallel to Torch TensorOp. Repeat with different data"
+    # )
+    # test_triton_simt_and_torch_tensorop_interleave()
+    # print("Cutlass SIMT (f32) in parallel to TensorOp. Repeat with different data")
+    # test_cutlass_simt_f32_and_tensorop_interleave()
+    # print(
+    #     "Triton SIMT in parallel to Cutlass TensorOp. Repeat with different"
+    #     " data"
+    # )
+    # test_triton_simt_and_cutlass_tensorop_interleave()
+    # print(
+    #     "Triton SIMT (f32) in parallel to Cutlass TensorOp (f32). Repeat with"
+    #     " different data"
+    # )
+    # test_triton_simt_f32_and_cutlass_tensorop_f32_interleave()
     print(
-        "Triton SIMT in parallel to Torch TensorOp. Repeat with different data"
+        "Cutlass SIMT (f32) in parallel to TensorOp (f32). Repeat with"
+        " different data"
     )
-    test_triton_simt_and_torch_tensorop_interleave()
-    print("Cutlass SIMT in parallel to TensorOp. Repeat with different data")
-    test_cutlass_simt_and_tensorop_interleave()
-    print(
-        "Triton SIMT in parallel Cutlass to TensorOp. Repeat with different"
-        " data"
-    )
-    test_triton_simt_and_cutlass_tensorop_interleave()
-    print(
-        "Cutlass TensorOp small in parallel to small. Repeat with different"
-        " data"
-    )
-    test_cutlass_tensorop_small_and_small_interleave()
-    print(
-        "Cutlass TensorOp big in parallel to small. Repeat with different data"
-    )
-    test_cutlass_tensorop_big_and_small_interleave()
+    test_cutlass_simt_f32_and_tensorop_f32_interleave()
+    # print(
+    #     "Cutlass TensorOp small in parallel to small. Repeat with different"
+    #     " data"
+    # )
+    # test_cutlass_tensorop_small_and_small_interleave()
+    # print(
+    #     "Cutlass TensorOp big in parallel to small. Repeat with different data"
+    # )
+    # test_cutlass_tensorop_big_and_small_interleave()
