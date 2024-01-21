@@ -23,11 +23,12 @@ job_id=$(echo $output | awk '{print $4}')
 echo "Submitted job with ID: $job_id"
 
 # Try to tail until the file is found
-while ! (ls my_output.$job_id.out my_output.$job_id.err 2>/dev/null)
+mkdir -p my_output
+while ! (ls my_output/$job_id.out my_output/$job_id.err 2>/dev/null)
 do
     echo "Waiting for output file..."
     sleep 5
 done
 
 # Now you can use $job_id for further processing if needed
-watch -n 5 tail -n 7 my_output.$job_id.out -n 7 my_output.$job_id.err
+watch -n 5 tail -n 7 my_output/$job_id.out -n 7 my_output/$job_id.err

@@ -7,8 +7,8 @@
 #SBATCH --nodes=1
 #SBATCH --mem=0
 #SBATCH --job-name=partition_graph
-#SBATCH --output=my_output.%j.out
-#SBATCH --error=my_output.%j.err
+#SBATCH --output=my_output/%j.out
+#SBATCH --error=my_output/%j.err
 
 # Load any necessary modules (e.g., Anaconda)
 
@@ -21,4 +21,5 @@ python --version
 
 # Run your Python script
 # MY_TOOLKIT_PATH is set in sbatch_and_tail.sh and is /shell
-python $MY_TOOLKIT_PATH/../test/test_interleaving.py
+cd $MY_TOOLKIT_PATH/../
+python -m test.test_interleaving
