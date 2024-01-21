@@ -116,9 +116,9 @@ def get_matmul_execs_cutlass_tensor_core_small(
         kt,
         repeat_times,
         {
-            "threadblock_shape": [128, 128, 32],
+            "threadblock_shape": [128, 128, 64],
             "warp_count": [2, 2, 1],
-            "stages": 3,
+            "stages": 4,
         },
     )
 
@@ -190,8 +190,8 @@ def get_matmul_execs_triton_simt(
                 Cs[idx],
                 tiling=MatmulTiling(
                     128,
-                    128,
-                    32,
+                    64,
+                    64,
                     1,
                     MatrixLayout.COLUMN_MAJOR,
                     MatrixLayout.ROW_MAJOR,
@@ -391,7 +391,7 @@ def test_triton_simt_and_cutlass_tensorop_interleave(
     nt=1024,
     kt=4096,
     m=(3456 + 6912 - 2 * 128 * 27),
-    n=512,
+    n=256,
     k=256,
     repeat_times=8,
 ):
@@ -452,7 +452,7 @@ def test_triton_simt_and_cutlass_tensorop_interleave(
     )
 
 
-def test_cutlass_tensorop_big_and_small_interleave(
+def test_cutlass_tensorop_small_and_small_interleave(
     # mt=2560, nt=1024, kt=512, m=1280, n=512, k=512
     mb=128 * 27 * 8,
     # nb=2048,
@@ -520,6 +520,74 @@ def test_cutlass_tensorop_big_and_small_interleave(
     )
 
 
+def test_cutlass_tensorop_big_and_small_interleave(
+    # mt=2560, nt=1024, kt=512, m=1280, n=512, k=512
+    mb=128 * 27 * 8,
+    # nb=2048,
+    nb=1024,
+    kb=4096,
+    m=128 * 27 * 4,  # 3456 + 6912 -2 * 128*27,
+    n=512 * 2,
+    k=2048,
+    repeat_times=1,
+):
+    matmul_execs_tc_big = get_matmul_execs_cutlass_tensor_core(
+        mb, nb, kb, repeat_times
+    )
+    matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_small(
+        m, n, k, repeat_times
+    )
+    tensor_core_big_time = test_non_interleaving(matmul_execs_tc_big)
+    tensor_core_time = test_non_interleaving(matmul_execs_tc)
+    # tensor_core_time = test_canonical_procedure(  # Tensor core
+    #     do_small=False, do_big=True
+    # )
+    # simt_time = test_canonical_procedure(do_small=True, do_big=False)  # SIMT
+    print(
+        "Non-interleaved time event: ",
+        tensor_core_big_time,
+        tensor_core_time,
+        tensor_core_big_time + tensor_core_time,
+    )
+    print(
+        "TFLOPs",
+        repeat_times * gemm_tflops(mb, nb, kb, tensor_core_big_time),
+        repeat_times * gemm_tflops(m, n, k, tensor_core_time),
+        repeat_times
+        * (
+            gemm_tflops(m, n, k, tensor_core_big_time + tensor_core_time)
+            + gemm_tflops(mb, nb, kb, tensor_core_big_time + tensor_core_time)
+        ),
+    )
+
+    constructor = TorchCUDAGraphConstructor()
+    constructor.register_new_stream()
+    matmul_execs_tc_big = get_matmul_execs_cutlass_tensor_core(
+        mb, nb, kb, repeat_times
+    )
+    with constructor.registeredStreams[1].torch_stream as cm:
+        matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_small(
+            m, n, k, repeat_times
+        )
+
+    interleaving_time = test_interleaving(
+        matmul_execs_tc_big, matmul_execs_tc, constructor=constructor
+    )
+    # interleaving_time = test_canonical_procedure(do_small=True, do_big=True)
+    print(
+        "Interleaved time event: ",
+        interleaving_time,
+    )
+    print(
+        "TFLOPs",
+        repeat_times
+        * (
+            gemm_tflops(m, n, k, interleaving_time)
+            + gemm_tflops(mb, nb, kb, interleaving_time)
+        ),
+    )
+
+
 if __name__ == "__main__":
     print(
         "Triton SIMT in parallel to Torch TensorOp. Repeat with different data"
@@ -532,6 +600,11 @@ if __name__ == "__main__":
         " data"
     )
     test_triton_simt_and_cutlass_tensorop_interleave()
+    print(
+        "Cutlass TensorOp small in parallel to small. Repeat with different"
+        " data"
+    )
+    test_cutlass_tensorop_small_and_small_interleave()
     print(
         "Cutlass TensorOp big in parallel to small. Repeat with different data"
     )
