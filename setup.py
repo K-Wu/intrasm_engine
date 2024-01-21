@@ -221,10 +221,11 @@ def setup_requirements() -> Tuple[List[str], List[str], List[str]]:
         "cuda-python",
         "pycuda",
         "nvidia-cutlass",
-        (
-            "xformers @"
-            " git+https://github.com/facebookresearch/xformers.git@main#egg=xformers"
-        ),
+        # Suppress it to avoid frequent update leading to costly recompilation
+        # (
+        #     "xformers @"
+        #     " git+https://github.com/facebookresearch/xformers.git@main#egg=xformers"
+        # ),
         (
             "torchknickknacks @"
             " git+https://github.com/AlGoulas/torchknickknacks.git"
@@ -468,6 +469,8 @@ def setup_pytorch_extension() -> setuptools.Extension:
         "-O3",
         "-gencode",
         "arch=compute_70,code=sm_70",
+        "-gencode",
+        "arch=compute_86,code=sm_86",
         "-U__CUDA_NO_HALF_OPERATORS__",
         "-U__CUDA_NO_HALF_CONVERSIONS__",
         "-U__CUDA_NO_BFLOAT16_OPERATORS__",
