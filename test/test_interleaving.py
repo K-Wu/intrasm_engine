@@ -14,6 +14,8 @@ from triton_autotuning.matmul_lib import (
     MatmulTiling,
     MatrixLayout,
 )
+from intrasm_engine.common.compound_streams import CompoundStream
+import contextlib
 
 
 def gemm_tflops(m, n, k, msec):
@@ -325,16 +327,17 @@ def get_matmul_execs_triton_simt_f32(
 
 
 def run_non_interleaving(
-    matmul_execs: list[partial],  # list of partial functions
+    *matmul_execs_args: list[partial],  # list of partial functions
 ) -> float:
-    repeat_times = len(matmul_execs)
+    repeat_times = len(matmul_execs_args[0])
     Cs = []
     constructor = TorchCUDAGraphConstructor()
+    constructor.capture_library_call_begin()
     for idx in range(repeat_times):
-        constructor.capture_library_call_begin()
-        c = matmul_execs[idx]()  # Tensor core
-        constructor.capture_library_call_end()
+        for idx_args in range(len(matmul_execs_args)):
+            c = matmul_execs_args[idx_args][idx]()
         Cs.append(c)
+    constructor.capture_library_call_end()
     constructor.instantiate_graph_exec()
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)
@@ -347,22 +350,18 @@ def run_non_interleaving(
     return start_event.elapsed_time(end_event)
 
 
-def run_interleaving(
-    *matmul_execs_args: list[partial], constructor: TorchCUDAGraphConstructor
+def run_single_stream(
+    *matmul_execs_args: list[partial],  # list of partial functions
 ) -> float:
-    # assert len(matmul_execs_args) == 2
-    assert len(constructor.registeredStreams) == len(matmul_execs_args)
     repeat_times = len(matmul_execs_args[0])
-    results = [[] for _ in range(len(matmul_execs_args))]
-    for idx_stream in range(len(constructor.registeredStreams)):
-        with constructor.registeredStreams[idx_stream].torch_stream as cm:
-            for idx in range(repeat_times):
-                constructor.capture_library_call_begin()
-                # matmul_exec returns the output tensor. Append it in a list to avoid printing.
-                results[idx_stream].append(
-                    matmul_execs_args[idx_stream][idx]()
-                )
-                constructor.capture_library_call_end()
+    Cs = []
+    constructor = TorchCUDAGraphConstructor()
+    constructor.capture_library_call_begin()
+    for idx in range(repeat_times):
+        for idx_args in range(len(matmul_execs_args)):
+            c = matmul_execs_args[idx_args][idx]()
+        Cs.append(c)
+    constructor.capture_library_call_end()
     constructor.instantiate_graph_exec()
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)
@@ -371,6 +370,86 @@ def run_interleaving(
     constructor.execute_graph()
     end_event.record()
     constructor.synchronize()
+    constructor.destroy_graph_exec()
+    return start_event.elapsed_time(end_event)
+
+
+def run_torch_interleaving(
+    *matmul_execs_args: list[partial], streams: list[CompoundStream]
+) -> float:
+    assert len(streams) == len(matmul_execs_args)
+    repeat_times = len(matmul_execs_args[0])
+    results = [[] for _ in range(len(matmul_execs_args))]
+    g = torch.cuda.CUDAGraph()
+    assert streams[0].torch_stream.stream == torch.cuda.current_stream()
+    join_events = [torch.cuda.Event() for _ in range(len(streams))]
+    torch.cuda.synchronize()
+    with torch.cuda.graph(g):
+        for idx_stream in range(len(streams)):
+            with streams[idx_stream].torch_stream as cm:
+                for idx in range(repeat_times):
+                    # matmul_exec returns the output tensor. Append it in a list to avoid printing.
+                    results[idx_stream].append(
+                        matmul_execs_args[idx_stream][idx]()
+                    )
+                if idx_stream > 0:
+                    join_events[idx_stream].record(
+                        stream=streams[idx_stream].torch_stream.stream
+                    )
+                    join_events[idx_stream].wait(
+                        stream=streams[0].torch_stream.stream
+                    )
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
+    torch.cuda.synchronize()
+
+    start_event.record()
+    g.replay()
+    end_event.record()
+    torch.cuda.synchronize()
+    start_event.elapsed_time(end_event)
+    print(start_event.elapsed_time(end_event))
+    return start_event.elapsed_time(end_event)
+
+
+def run_interleaving(
+    *matmul_execs_args: list[partial], constructor: TorchCUDAGraphConstructor
+) -> float:
+    # assert len(matmul_execs_args) == 2
+    assert len(constructor.registeredStreams) == len(matmul_execs_args)
+    repeat_times = len(matmul_execs_args[0])
+    results = [[] for _ in range(len(matmul_execs_args))]
+    HORIZONTAL_GRAINED = False
+    if HORIZONTAL_GRAINED:
+        for idx_stream in range(len(constructor.registeredStreams)):
+            with constructor.registeredStreams[idx_stream].torch_stream as cm:
+                for idx in range(repeat_times):
+                    constructor.capture_library_call_begin()
+                    # matmul_exec returns the output tensor. Append it in a list to avoid printing.
+                    results[idx_stream].append(
+                        matmul_execs_args[idx_stream][idx]()
+                    )
+                    constructor.capture_library_call_end()
+    else:
+        for idx_stream in range(len(constructor.registeredStreams)):
+            with constructor.registeredStreams[idx_stream].torch_stream as cm:
+                constructor.capture_library_call_begin()
+                for idx in range(repeat_times):
+                    # matmul_exec returns the output tensor. Append it in a list to avoid printing.
+                    results[idx_stream].append(
+                        matmul_execs_args[idx_stream][idx]()
+                    )
+                constructor.capture_library_call_end()
+    constructor.instantiate_graph_exec()
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
+    torch.cuda.synchronize()
+
+    start_event.record()
+    constructor.execute_graph()
+    end_event.record()
+    constructor.synchronize()
+    start_event.elapsed_time(end_event)
     constructor.destroy_graph_exec()
     return start_event.elapsed_time(end_event)
 
@@ -393,7 +472,7 @@ def test_triton_simt_and_torch_tensorop_interleave(
         matmul_execs_simt,
     )
     print(
-        "Non-interleaved time event: ",
+        "Separate time event: ",
         tensor_core_time,
         simt_time,
         tensor_core_time + simt_time,
@@ -458,7 +537,7 @@ def test_cutlass_simt_f32_and_tensorop_interleave(
     #     do_simt=True, do_tensor_core=False
     # )
     print(
-        "Non-interleaved time event: ",
+        "Separate time event: ",
         tensor_core_time,
         simt_time,
         tensor_core_time + simt_time,
@@ -528,7 +607,7 @@ def test_triton_simt_and_cutlass_tensorop_interleave(
     #     do_simt=True, do_tensor_core=False
     # )
     print(
-        "Non-interleaved time event: ",
+        "Separate time event: ",
         tensor_core_time,
         simt_time,
         tensor_core_time + simt_time,
@@ -602,7 +681,7 @@ def test_triton_simt_f32_and_cutlass_tensorop_f32_interleave(
     #     do_simt=True, do_tensor_core=False
     # )
     print(
-        "Non-interleaved time event: ",
+        "Separate time event: ",
         tensor_core_time,
         simt_time,
         tensor_core_time + simt_time,
@@ -650,22 +729,22 @@ def test_triton_simt_f32_and_cutlass_tensorop_f32_interleave(
 
 def test_cutlass_simt_f32_and_tensorop_f32_interleave(
     # A100
-    # mt=128 * 27,
-    # nt=1024,
-    # kt=4096,
-    # m=(3456 + 6912 - 2 * 128 * 27),
-    # n=256,
-    # k=256,
-    # RTX 3090
-    mt=64 * 41,
-    nt=64 * 2,
+    mt=128 * 27,
+    nt=128 * 4,
     kt=4096,
-    m=64 * 41,
+    m=64 * 27 * 2,
     n=64 * 2,
-    k=1024,
-    repeat_times=16,
+    k=512,
+    # RTX 3090
+    # mt=64 * 41,
+    # nt=64 * 2,
+    # kt=4096,
+    # m=64 * 41,
+    # n=64 * 2,
+    # k=1024,
+    repeat_times=8,
 ):
-    matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_f32_small(
+    matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_f32(
         mt, nt, kt, repeat_times
     )
     matmul_execs_simt = get_matmul_execs_cutlass_simt_f32(
@@ -680,7 +759,7 @@ def test_cutlass_simt_f32_and_tensorop_f32_interleave(
     #     do_simt=True, do_tensor_core=False
     # )
     print(
-        "Non-interleaved time event: ",
+        "Separate time event: ",
         tensor_core_time,
         simt_time,
         tensor_core_time + simt_time,
@@ -693,6 +772,36 @@ def test_cutlass_simt_f32_and_tensorop_f32_interleave(
         * (
             gemm_tflops(m, n, k, tensor_core_time + simt_time)
             + gemm_tflops(mt, nt, kt, tensor_core_time + simt_time)
+        ),
+    )
+
+    non_interleave_time = run_non_interleaving(
+        matmul_execs_tc, matmul_execs_simt
+    )
+    print(
+        "Non-interleaved serial time event: ",
+        non_interleave_time,
+    )
+    print(
+        "TFLOPs",
+        repeat_times
+        * (
+            gemm_tflops(m, n, k, non_interleave_time)
+            + gemm_tflops(mt, nt, kt, non_interleave_time)
+        ),
+    )
+
+    single_stream_time = run_single_stream(matmul_execs_tc, matmul_execs_simt)
+    print(
+        "Single stream serial time event: ",
+        single_stream_time,
+    )
+    print(
+        "TFLOPs",
+        repeat_times
+        * (
+            gemm_tflops(m, n, k, single_stream_time)
+            + gemm_tflops(mt, nt, kt, single_stream_time)
         ),
     )
 
@@ -725,6 +834,170 @@ def test_cutlass_simt_f32_and_tensorop_f32_interleave(
         ),
     )
 
+    matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_f32(
+        mt, nt, kt, repeat_times
+    )
+    with constructor.registeredStreams[1].torch_stream as cm:
+        matmul_execs_simt = get_matmul_execs_cutlass_simt_f32(
+            m, n, k, repeat_times
+        )
+
+    TORCH_GRAPH_FAULTY = True
+    if not TORCH_GRAPH_FAULTY:
+        torch_graph_time = run_torch_interleaving(
+            matmul_execs_tc,
+            matmul_execs_simt,
+            streams=constructor.registeredStreams,
+        )
+        print(
+            "Torch graph time event: ",
+            torch_graph_time,
+        )
+        print(
+            "TFLOPs",
+            repeat_times
+            * (
+                gemm_tflops(m, n, k, torch_graph_time)
+                + gemm_tflops(mt, nt, kt, torch_graph_time)
+            ),
+        )
+
+
+def test_cutlass_tensorop_f32_big_and_small_interleave(
+    # A100
+    mt=128 * 27,
+    nt=128 * 4,
+    kt=4096,
+    m=64 * 27 * 2,
+    n=64 * 2,
+    k=1024,
+    # RTX 3090
+    # mt=64 * 41,
+    # nt=64 * 2,
+    # kt=4096,
+    # m=64 * 41,
+    # n=64 * 2,
+    # k=1024,
+    repeat_times=8,
+):
+    matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_f32(
+        mt, nt, kt, repeat_times
+    )
+    matmul_execs_simt = get_matmul_execs_cutlass_tensor_core_f32_small(
+        m, n, k, repeat_times
+    )
+    tensor_core_time = run_non_interleaving(matmul_execs_tc)
+    simt_time = run_non_interleaving(matmul_execs_simt)
+    # tensor_core_time = test_canonical_procedure(  # Tensor core
+    #     do_simt=False, do_tensor_core=True
+    # )
+    # simt_time = test_canonical_procedure(  # SIMT
+    #     do_simt=True, do_tensor_core=False
+    # )
+    print(
+        "Separate time event: ",
+        tensor_core_time,
+        simt_time,
+        tensor_core_time + simt_time,
+    )
+    print(
+        "TFLOPs",
+        repeat_times * gemm_tflops(mt, nt, kt, tensor_core_time),
+        repeat_times * gemm_tflops(m, n, k, simt_time),
+        repeat_times
+        * (
+            gemm_tflops(m, n, k, tensor_core_time + simt_time)
+            + gemm_tflops(mt, nt, kt, tensor_core_time + simt_time)
+        ),
+    )
+
+    non_interleave_time = run_non_interleaving(
+        matmul_execs_tc, matmul_execs_simt
+    )
+    print(
+        "Non-interleaved serial time event: ",
+        non_interleave_time,
+    )
+    print(
+        "TFLOPs",
+        repeat_times
+        * (
+            gemm_tflops(m, n, k, non_interleave_time)
+            + gemm_tflops(mt, nt, kt, non_interleave_time)
+        ),
+    )
+
+    single_stream_time = run_single_stream(matmul_execs_tc, matmul_execs_simt)
+    print(
+        "Single stream serial time event: ",
+        single_stream_time,
+    )
+    print(
+        "TFLOPs",
+        repeat_times
+        * (
+            gemm_tflops(m, n, k, single_stream_time)
+            + gemm_tflops(mt, nt, kt, single_stream_time)
+        ),
+    )
+
+    constructor = TorchCUDAGraphConstructor()
+    constructor.register_new_stream()
+    matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_f32(
+        mt, nt, kt, repeat_times
+    )
+    with constructor.registeredStreams[1].torch_stream as cm:
+        matmul_execs_simt = get_matmul_execs_cutlass_tensor_core_f32_small(
+            m, n, k, repeat_times
+        )
+
+    interleaving_time = run_interleaving(
+        matmul_execs_tc, matmul_execs_simt, constructor=constructor
+    )
+    # interleaving_time = test_canonical_procedure(
+    #     do_simt=True, do_tensor_core=True
+    # )
+    print(
+        "Interleaved time event: ",
+        interleaving_time,
+    )
+    print(
+        "TFLOPs",
+        repeat_times
+        * (
+            gemm_tflops(m, n, k, interleaving_time)
+            + gemm_tflops(mt, nt, kt, interleaving_time)
+        ),
+    )
+
+    matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_f32(
+        mt, nt, kt, repeat_times
+    )
+    with constructor.registeredStreams[1].torch_stream as cm:
+        matmul_execs_simt = get_matmul_execs_cutlass_tensor_core_f32_small(
+            m, n, k, repeat_times
+        )
+
+    TORCH_GRAPH_FAULTY = True
+    if not TORCH_GRAPH_FAULTY:
+        torch_graph_time = run_torch_interleaving(
+            matmul_execs_tc,
+            matmul_execs_simt,
+            streams=constructor.registeredStreams,
+        )
+        print(
+            "Torch graph time event: ",
+            torch_graph_time,
+        )
+        print(
+            "TFLOPs",
+            repeat_times
+            * (
+                gemm_tflops(m, n, k, torch_graph_time)
+                + gemm_tflops(mt, nt, kt, torch_graph_time)
+            ),
+        )
+
 
 def test_cutlass_tensorop_small_and_small_interleave(
     # mt=2560, nt=1024, kt=512, m=1280, n=512, k=512
@@ -750,7 +1023,7 @@ def test_cutlass_tensorop_small_and_small_interleave(
     # )
     # simt_time = test_canonical_procedure(do_small=True, do_big=False)  # SIMT
     print(
-        "Non-interleaved time event: ",
+        "Separate time event: ",
         tensor_core_big_time,
         tensor_core_time,
         tensor_core_big_time + tensor_core_time,
@@ -818,7 +1091,7 @@ def test_cutlass_tensorop_big_and_small_interleave(
     # )
     # simt_time = test_canonical_procedure(do_small=True, do_big=False)  # SIMT
     print(
-        "Non-interleaved time event: ",
+        "Separate time event: ",
         tensor_core_big_time,
         tensor_core_time,
         tensor_core_big_time + tensor_core_time,
@@ -884,6 +1157,11 @@ if __name__ == "__main__":
         " different data"
     )
     test_cutlass_simt_f32_and_tensorop_f32_interleave()
+    print(
+        "Cutlass TensorOp big (f32) in parallel to small (f32). Repeat with"
+        " different data"
+    )
+    test_cutlass_tensorop_f32_big_and_small_interleave()
     # print(
     #     "Cutlass TensorOp small in parallel to small. Repeat with different"
     #     " data"
