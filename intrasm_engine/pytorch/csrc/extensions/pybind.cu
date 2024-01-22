@@ -369,6 +369,8 @@ class PyWrapperCUDAGraphConstructor {
         (*child_graph.getGraphWrapper()));
   }
 
+  void printGraph() { constructor_.getAdjacencyMonitor().print(); }
+
   void addGraphAsChildNode(PyWrapperCUDAGraphConstructor& child_graph) {
     constructor_.getGraphWrapper()->addGraphAsChildNode(
         (*child_graph.constructor_.getGraphWrapper()));
@@ -509,6 +511,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
            torch::wrap_pybind_function_no_gil(
                &IntraSMEngine::PyWrapperCUDAGraphConstructor::
                    addEventRecordNode))
+      .def("print_graph",
+           torch::wrap_pybind_function_no_gil(
+               &IntraSMEngine::PyWrapperCUDAGraphConstructor::printGraph))
       .def("add_stream_wait_event_node",
            torch::wrap_pybind_function_no_gil(
                &IntraSMEngine::PyWrapperCUDAGraphConstructor::

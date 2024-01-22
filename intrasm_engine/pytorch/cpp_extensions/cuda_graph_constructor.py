@@ -53,6 +53,9 @@ class TorchCUDAGraphConstructor:
         )
         return stream
 
+    def print_graph(self):
+        self.constructor.print_graph()
+
     def register_new_streams(self, num_streams: int) -> list[CompoundStream]:
         streams = []
         for idx in range(num_streams):
