@@ -110,6 +110,22 @@ def get_matmul_execs_cutlass_tensor_core_f32(
     )
 
 
+def get_matmul_execs_cutlass_tensor_core_f32_small(
+    mt, nt, kt, repeat_times
+) -> list[partial]:
+    return _get_matmul_execs_cutlass_tensor_core_f32(
+        mt,
+        nt,
+        kt,
+        repeat_times,
+        {
+            "threadblock_shape": [64, 64, 16],
+            "warp_count": [2, 2, 1],
+            "stages": 3,
+        },
+    )
+
+
 def _get_matmul_execs_cutlass_tensor_core(
     mt, nt, kt, repeat_times, tile_description: dict[str, Any] | None = None
 ) -> list[partial]:
@@ -206,9 +222,9 @@ def get_matmul_execs_cutlass_simt_f32(m, n, k, repeat_times) -> list[partial]:
     for idx in range(repeat_times):
         plan_simts[idx].opclass = cutlass.OpcodeClass.Simt
         plan_simts[idx].tile_description = {
-            "threadblock_shape": [128, 128, 8],
-            "warp_count": [4, 2, 1],
-            "stages": 4,
+            "threadblock_shape": [64, 64, 16],
+            "warp_count": [2, 2, 1],
+            "stages": 3,
         }
     arguments_tcs = [
         cutlass_utils.prepare_GemmArguments(
@@ -641,15 +657,15 @@ def test_cutlass_simt_f32_and_tensorop_f32_interleave(
     # n=256,
     # k=256,
     # RTX 3090
-    mt=128 * 41,
-    nt=256,
+    mt=64 * 41,
+    nt=64 * 2,
     kt=4096,
-    m=128 * 41,
-    n=128 * 2,
+    m=64 * 41,
+    n=64 * 2,
     k=1024,
-    repeat_times=8,
+    repeat_times=16,
 ):
-    matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_f32(
+    matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_f32_small(
         mt, nt, kt, repeat_times
     )
     matmul_execs_simt = get_matmul_execs_cutlass_simt_f32(
