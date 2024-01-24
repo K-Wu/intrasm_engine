@@ -6,7 +6,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --nodes=1
 #SBATCH --mem=0
-#SBATCH --job-name=do_test_interleaving
+#SBATCH --job-name=partition_graph
 #SBATCH --output=my_output/%j.out
 #SBATCH --error=my_output/%j.err
 
@@ -21,5 +21,6 @@ python --version
 
 # Run your Python script
 # MY_TOOLKIT_PATH is set in sbatch_and_tail.sh and is /shell
-cd $MY_TOOLKIT_PATH/../
-srun python -m test.test_interleaving
+cd $MY_TOOLKIT_PATH/..
+#. ../../cutlass/build/tools/profiler/cutlass_profiler --operation=Gemm
+/u/kunwu2/projects/cutlass/build/tools/profiler/cutlass_profiler --operation=Gemm
