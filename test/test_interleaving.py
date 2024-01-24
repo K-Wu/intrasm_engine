@@ -64,7 +64,9 @@ def _get_matmul_execs_cutlass_tensor_core_f32(
     plan_tcs = [
         cutlass.op.Gemm(
             element=torch.float32,
-            layout=cutlass.LayoutType.RowMajor,
+            layout_A=cutlass.LayoutType.ColumnMajor,
+            layout_B=cutlass.LayoutType.RowMajor,
+            layout_C=cutlass.LayoutType.ColumnMajor,
             element_C=cutlass.DataType.void,
             element_accumulator=cutlass.DataType.f32,
         )
@@ -105,8 +107,8 @@ def get_matmul_execs_cutlass_tensor_core_f32(
         kt,
         repeat_times,
         {
-            "threadblock_shape": [128, 128, 32],
-            "warp_count": [2, 2, 1],
+            "threadblock_shape": [256, 128, 32],
+            "warp_count": [4, 2, 1],
             "stages": 3,
         },
     )
@@ -121,7 +123,7 @@ def get_matmul_execs_cutlass_tensor_core_f32_small(
         kt,
         repeat_times,
         {
-            "threadblock_shape": [64, 64, 16],
+            "threadblock_shape": [64, 64, 32],
             "warp_count": [2, 2, 1],
             "stages": 3,
         },
@@ -208,14 +210,18 @@ def get_matmul_execs_cutlass_tensor_core_small(
     )
 
 
-def get_matmul_execs_cutlass_simt_f32(m, n, k, repeat_times) -> list[partial]:
+def _get_matmul_execs_cutlass_simt_f32(
+    m, n, k, repeat_times, tile_description: dict[str, Any] | None = None
+) -> list[partial]:
     As = [torch.randn(m, k, device="cuda") for _ in range(repeat_times)]
     Bs = [torch.randn(k, n, device="cuda") for _ in range(repeat_times)]
     Cs = [torch.randn(m, n, device="cuda") for _ in range(repeat_times)]
     plan_simts = [
         cutlass.op.Gemm(
             element=torch.float32,
-            layout=cutlass.LayoutType.RowMajor,
+            layout_A=cutlass.LayoutType.ColumnMajor,
+            layout_B=cutlass.LayoutType.RowMajor,
+            layout_C=cutlass.LayoutType.ColumnMajor,
             element_C=cutlass.DataType.void,
             element_accumulator=cutlass.DataType.f32,
         )
@@ -223,11 +229,8 @@ def get_matmul_execs_cutlass_simt_f32(m, n, k, repeat_times) -> list[partial]:
     ]
     for idx in range(repeat_times):
         plan_simts[idx].opclass = cutlass.OpcodeClass.Simt
-        plan_simts[idx].tile_description = {
-            "threadblock_shape": [64, 64, 16],
-            "warp_count": [2, 2, 1],
-            "stages": 3,
-        }
+        if tile_description is not None:
+            plan_simts[idx].tile_description = tile_description
     arguments_tcs = [
         cutlass_utils.prepare_GemmArguments(
             plan_simts[idx],
@@ -247,6 +250,20 @@ def get_matmul_execs_cutlass_simt_f32(m, n, k, repeat_times) -> list[partial]:
         for idx in range(repeat_times)
     ]
     return matmul_execs
+
+
+def get_matmul_execs_cutlass_simt_f32(m, n, k, repeat_times) -> list[partial]:
+    return _get_matmul_execs_cutlass_simt_f32(
+        m,
+        n,
+        k,
+        repeat_times,
+        {
+            "threadblock_shape": [64, 64, 16],
+            "warp_count": [2, 2, 1],
+            "stages": 3,
+        },
+    )
 
 
 def get_matmul_execs_triton_simt(
@@ -729,7 +746,7 @@ def test_triton_simt_f32_and_cutlass_tensorop_f32_interleave(
 
 def test_cutlass_simt_f32_and_tensorop_f32_interleave(
     # A100
-    mt=128 * 27,
+    mt=256 * 27,
     nt=128 * 4,
     kt=4096,
     m=64 * 27 * 2,
@@ -865,7 +882,7 @@ def test_cutlass_simt_f32_and_tensorop_f32_interleave(
 
 def test_cutlass_tensorop_f32_big_and_small_interleave(
     # A100
-    mt=128 * 27,
+    mt=256 * 27,
     nt=128 * 4,
     kt=4096,
     m=64 * 27 * 2,
