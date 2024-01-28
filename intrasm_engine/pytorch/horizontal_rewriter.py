@@ -1,7 +1,7 @@
 from __future__ import annotations
 import torch
 from torch import nn
-from .cpp_extensions.layers_and_funcs_utils import MyAutogradFunc
+from .cpp_extensions.layers_and_funcs.utils import MyAutogradFunc
 from .cpp_extensions.cuda_graph_constructor import TorchCUDAGraphConstructor
 from sparta.common.tuning import TunableItemCfg
 from typing import Any, Optional
@@ -79,21 +79,33 @@ def make_kernel_pair_or_triple_autograd_function(
     func3: type[MyAutogradFunc] | None = None,
 ) -> type[MyAutogradFunc]:
     class KernelPairOrTripleAutogradFunction(MyAutogradFunc):
-        @classmethod
-        def get_test_fwd_kwargs(cls, params: dict) -> dict[str, Any]:
-            results = {}
-            if func3 is not None:
-                params_1, params_2, params_3 = simple_unpack_params(params)
-                fwd_kwargs_3 = func3.get_test_fwd_kwargs(params_3)
-            else:
-                params_1, params_2 = simple_unpack_params(params)
-            fwd_kwargs_1 = func1.get_test_fwd_kwargs(params_1)
-            fwd_kwargs_2 = func2.get_test_fwd_kwargs(params_2)
-            results["fwd_kwargs_1"] = fwd_kwargs_1["fwd_kwargs_1"]
-            results["fwd_kwargs_2"] = fwd_kwargs_2["fwd_kwargs_1"]
-            if func3 is not None:
-                results["fwd_kwargs_3"] = fwd_kwargs_3["fwd_kwargs_1"]
-            return results
+        @staticmethod
+        def num_inputs(**fwd_kwargs_unwrapped) -> int:
+            return (
+                func1.num_inputs(**fwd_kwargs_unwrapped)
+                + func2.num_inputs(**fwd_kwargs_unwrapped)
+                + (func3.num_inputs(**fwd_kwargs_unwrapped) if func3 else 0)
+            )
+
+        @staticmethod
+        def num_outputs(**ctx_kwargs_unwrapped) -> int:
+            return (
+                func1.num_outputs(**ctx_kwargs_unwrapped)
+                + func2.num_outputs(**ctx_kwargs_unwrapped)
+                + (func3.num_outputs(**ctx_kwargs_unwrapped) if func3 else 0)
+            )
+
+        @staticmethod
+        def num_saved_tensors(**ctx_kwargs_unwrapped) -> int:
+            return (
+                func1.num_saved_tensors(**ctx_kwargs_unwrapped)
+                + func2.num_saved_tensors(**ctx_kwargs_unwrapped)
+                + (
+                    func3.num_saved_tensors(**ctx_kwargs_unwrapped)
+                    if func3
+                    else 0
+                )
+            )
 
         @classmethod
         def get_search_space(
@@ -105,10 +117,14 @@ def make_kernel_pair_or_triple_autograd_function(
             sample_input_2 = sample_inputs[
                 func1.num_inputs() : func1.num_inputs() + func2.num_inputs()
             ]
-            sample_grads_1 = sample_grads[: func1.num_outputs()]
-            sample_grads_2 = sample_grads[
-                func1.num_outputs() : func1.num_outputs() + func2.num_outputs()
-            ]
+            sample_grads_1 = None
+            sample_grads_2 = None
+            if sample_grads is not None:
+                sample_grads_1 = sample_grads[: func1.num_outputs()]
+                sample_grads_2 = sample_grads[
+                    func1.num_outputs() : func1.num_outputs()
+                    + func2.num_outputs()
+                ]
             search_space_1 = func1.get_search_space(
                 sample_input_1, sample_grads_1
             )
@@ -120,15 +136,69 @@ def make_kernel_pair_or_triple_autograd_function(
                 sample_input_3 = sample_inputs[
                     func1.num_inputs() + func2.num_inputs() :
                 ]
-                sample_grads_3 = sample_grads[
-                    func1.num_outputs() + func2.num_outputs() :
-                ]
+                sample_grads_3 = None
+                if sample_grads is not None:
+                    sample_grads_3 = sample_grads[
+                        func1.num_outputs() + func2.num_outputs() :
+                    ]
                 search_space_3 = func3.get_search_space(
                     sample_input_3, sample_grads_3
                 )
             return simple_combine_search_space(
                 search_space_1, search_space_2, search_space_3
             )
+
+        @classmethod
+        def check_fwd_kwargs_sanity(cls, fwd_kwargs: dict[str, Any]):
+            assert "fwd_kwargs_1" in fwd_kwargs
+            assert "fwd_kwargs_2" in fwd_kwargs
+            if func3 is not None:
+                assert "fwd_kwargs_3" in fwd_kwargs
+                func3._check_unwrapped_fwd_kwargs_sanity(
+                    fwd_kwargs["fwd_kwargs_3"]
+                )
+            func1._check_unwrapped_fwd_kwargs_sanity(
+                fwd_kwargs["fwd_kwargs_1"]
+            )
+            func2._check_unwrapped_fwd_kwargs_sanity(
+                fwd_kwargs["fwd_kwargs_2"]
+            )
+
+        @classmethod
+        def get_test_fwd_kwargs(cls, params: dict) -> dict[str, Any]:
+            results = {}
+            fwd_kwargs_3 = None
+            if func3 is not None:
+                params_tuples = simple_unpack_params(params)
+                assert len(params_tuples) == 3
+                params_1, params_2, params_3 = params_tuples
+                fwd_kwargs_3 = func3.get_test_fwd_kwargs(params_3)
+            else:
+                params_tuples = simple_unpack_params(params)
+                assert len(params_tuples) == 2
+                params_1, params_2 = params_tuples
+            fwd_kwargs_1 = func1.get_test_fwd_kwargs(params_1)
+            fwd_kwargs_2 = func2.get_test_fwd_kwargs(params_2)
+            results["fwd_kwargs_1"] = fwd_kwargs_1["fwd_kwargs_1"]
+            results["fwd_kwargs_2"] = fwd_kwargs_2["fwd_kwargs_1"]
+            if func3 is not None:
+                assert fwd_kwargs_3 is not None
+                results["fwd_kwargs_3"] = fwd_kwargs_3["fwd_kwargs_1"]
+            return results
+
+        @classmethod
+        def check_params_sanity(cls, params: dict):
+            if func3 is not None:
+                params_tuples = simple_unpack_params(params)
+                assert len(params_tuples) == 3
+                params_1, params_2, params_3 = params_tuples
+                func3.check_params_sanity(params_3)
+            else:
+                params_tuples = simple_unpack_params(params)
+                assert len(params_tuples) == 2
+                params_1, params_2 = params_tuples
+            func1.check_params_sanity(params_1)
+            func2.check_params_sanity(params_2)
 
         @classmethod
         def build_and_test(
@@ -141,17 +211,23 @@ def make_kernel_pair_or_triple_autograd_function(
             sample_inputs_2 = sample_inputs[
                 func1.num_inputs() : func1.num_inputs() + func2.num_inputs()
             ]
-            sample_grads_1 = sample_grads[: func1.num_outputs()]
-            sample_grads_2 = sample_grads[
-                func1.num_outputs() : func1.num_outputs() + func2.num_outputs()
-            ]
+            sample_grads_1 = None
+            sample_grads_2 = None
+            if sample_grads is not None:
+                sample_grads_1 = sample_grads[: func1.num_outputs()]
+                sample_grads_2 = sample_grads[
+                    func1.num_outputs() : func1.num_outputs()
+                    + func2.num_outputs()
+                ]
             if func3 is not None:
                 sample_inputs_3 = sample_inputs[
                     func1.num_inputs() + func2.num_inputs() :
                 ]
-                sample_grads_3 = sample_grads[
-                    func1.num_outputs() + func2.num_outputs() :
-                ]
+                sample_grads_3 = None
+                if sample_grads is not None:
+                    sample_grads_3 = sample_grads[
+                        func1.num_outputs() + func2.num_outputs() :
+                    ]
             # TODO
 
         @staticmethod
@@ -217,7 +293,7 @@ def make_kernel_pair_or_triple_autograd_function(
             )
             if func3 is not None:
                 tensors_to_save_3 = tensors_to_save_2[
-                    func2.num_saved_tensors(ctx["ctx_dict_2"]) :
+                    func2.num_saved_tensors(**ctx["ctx_dict_2"]) :
                 ]
                 gradients_3 = func3._backward(
                     ctx,

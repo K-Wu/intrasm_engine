@@ -3,6 +3,11 @@ import torch
 from sparta.common.tuning import TunableItemCfg
 
 
+def assert_params_unpacked(params: dict):
+    for key in params:
+        assert not key.startswith("space_")
+
+
 class MyAutogradFunc(torch.autograd.Function):
     @staticmethod
     def num_inputs(**fwd_kwargs_unwrapped) -> int:
@@ -64,24 +69,48 @@ class MyAutogradFunc(torch.autograd.Function):
         )
 
     @classmethod
-    def check_params_sanity(cls, params: dict):
-        raise NotImplementedError(
-            "You must implement check_params_sanity for your autograd"
-            " function."
-        )
-
-    @classmethod
-    def check_fwd_kwargs_sanity(cls, fwd_kwargs: dict[str, Any]):
-        assert "fwd_kwargs_1" in fwd_kwargs
+    def _check_unwrapped_fwd_kwargs_sanity(
+        cls, unwrapped_fwd_kwargs: dict[str, Any]
+    ):
         raise NotImplementedError(
             "You must implement check_fwd_kwargs_sanity for your"
             " autograd function."
         )
 
     @classmethod
-    def check_ctx_dict_sanity(cls, ctx_dict: dict[str, Any]):
+    def check_fwd_kwargs_sanity(cls, fwd_kwargs: dict[str, Any]):
+        assert "fwd_kwargs_1" in fwd_kwargs
+        return cls._check_unwrapped_fwd_kwargs_sanity(
+            fwd_kwargs["fwd_kwargs_1"]
+        )
+
+    @classmethod
+    def _check_unwrapped_ctx_dict_sanity(
+        cls, unwrapped_ctx_dict: dict[str, Any]
+    ):
         raise NotImplementedError(
             "You must implement check_ctx_dict_sanity for your autograd"
+            " function."
+        )
+
+    @classmethod
+    def check_ctx_dict_sanity(cls, ctx_dict: dict[str, Any]):
+        assert "ctx_dict_1" in ctx_dict
+        return cls._check_unwrapped_ctx_dict_sanity(ctx_dict["ctx_dict_1"])
+
+    @classmethod
+    def check_unwrapped_params_sanity(cls, unwrapped_params: dict):
+        raise NotImplementedError(
+            "You must implement check_params_sanity for your autograd"
+            " function."
+        )
+
+    @classmethod
+    def check_params_sanity(cls, params: dict):
+        """params is a point in the search space. params defines how kernels should be parameterized to perform the computation (and what kernel to use if there is an option)."""
+        assert_params_unpacked(params)
+        raise NotImplementedError(
+            "You must implement check_params_sanity for your autograd"
             " function."
         )
 

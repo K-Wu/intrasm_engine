@@ -1,11 +1,11 @@
 import sys
 import torch
-from ...common import external_kernels  # sputnik and cutlass
+from ....common import external_kernels  # sputnik and cutlass
 from xformers.sparse.utils import _transpose_with_info
 from intrasm_engine.pytorch.cpp_extensions.cuda_graph_constructor import (
     TorchCUDAGraphConstructor,
 )
-from .layers_and_funcs_utils import MyAutogradFunc
+from .utils import MyAutogradFunc
 
 this = sys.modules[__name__]
 this.single_kernel_autograd_functions: list[type[torch.autograd.Function]] = []
