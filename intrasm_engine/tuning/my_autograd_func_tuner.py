@@ -4,7 +4,7 @@ from sparta.common.tuning import TunableItemCfg
 from sparta.nn.module_tuner import GridSearchTuner, RandomSearchTuner
 import numpy as np
 import logging
-from ..pytorch.cpp_extensions.layers_and_funcs_utils import MyAutogradFunc
+from ..pytorch.cpp_extensions.layers_and_funcs.utils import MyAutogradFunc
 
 _logger = logging.Logger(__name__)
 _handler = logging.StreamHandler()
