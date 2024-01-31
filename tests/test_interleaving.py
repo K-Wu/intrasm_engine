@@ -148,7 +148,9 @@ def _get_matmul_execs_cutlass_tensor_core(
     plan_tcs = [
         cutlass.op.Gemm(
             element=torch.float16,
-            layout=cutlass.LayoutType.RowMajor,
+            layout_A=cutlass.LayoutType.ColumnMajor,
+            layout_B=cutlass.LayoutType.RowMajor,
+            layout_C=cutlass.LayoutType.ColumnMajor,
             element_C=cutlass.DataType.void,
             element_accumulator=cutlass.DataType.f16,
         )
@@ -746,22 +748,22 @@ def test_triton_simt_f32_and_cutlass_tensorop_f32_interleave(
 
 def test_cutlass_simt_f32_and_tensorop_f32_interleave(
     # A100
-    mt=256 * 27,
-    nt=128 * 4,
-    kt=4096,
-    m=64 * 27 * 2,
-    n=64 * 2,
-    k=512,
-    # RTX 3090
-    # mt=64 * 41,
-    # nt=64 * 2,
+    # mt=256 * 27,
+    # nt=128 * 4,
     # kt=4096,
-    # m=64 * 41,
+    # m=64 * 27 * 2,
     # n=64 * 2,
-    # k=1024,
+    # k=512,
+    # RTX 3090
+    mt=64 * 41,
+    nt=64 * 2,
+    kt=4096,
+    m=64 * 41,
+    n=64 * 2,
+    k=1024,
     repeat_times=8,
 ):
-    matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_f32(
+    matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_f32_small(
         mt, nt, kt, repeat_times
     )
     matmul_execs_simt = get_matmul_execs_cutlass_simt_f32(
@@ -824,7 +826,7 @@ def test_cutlass_simt_f32_and_tensorop_f32_interleave(
 
     constructor = TorchCUDAGraphConstructor()
     constructor.register_new_stream()
-    matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_f32(
+    matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_f32_small(
         mt, nt, kt, repeat_times
     )
     with constructor.registeredStreams[1].torch_stream as cm:
@@ -851,7 +853,7 @@ def test_cutlass_simt_f32_and_tensorop_f32_interleave(
         ),
     )
 
-    matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_f32(
+    matmul_execs_tc = get_matmul_execs_cutlass_tensor_core_f32_small(
         mt, nt, kt, repeat_times
     )
     with constructor.registeredStreams[1].torch_stream as cm:
@@ -1174,11 +1176,11 @@ if __name__ == "__main__":
         " different data"
     )
     test_cutlass_simt_f32_and_tensorop_f32_interleave()
-    print(
-        "Cutlass TensorOp big (f32) in parallel to small (f32). Repeat with"
-        " different data"
-    )
-    test_cutlass_tensorop_f32_big_and_small_interleave()
+    # print(
+    #     "Cutlass TensorOp big (f32) in parallel to small (f32). Repeat"
+    #     " with different data"
+    # )
+    # test_cutlass_tensorop_f32_big_and_small_interleave()
     # print(
     #     "Cutlass TensorOp small in parallel to small. Repeat with different"
     #     " data"

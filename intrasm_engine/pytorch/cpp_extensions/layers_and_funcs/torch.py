@@ -1,5 +1,5 @@
 import torch
-from .layers_and_funcs_utils import MyAutogradFunc
+from .utils import MyAutogradFunc
 
 
 # Implementation of torch matmul autograd functions
