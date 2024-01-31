@@ -24,4 +24,4 @@ python --version
 # Run your Python script
 # MY_TOOLKIT_PATH is set in sbatch_and_tail.sh and is /shell
 cd $MY_TOOLKIT_PATH/../
-srun ncu --export test_profile_cutlass --set full --force-overwrite python -m test.profile_cutlass
+srun ncu --export test_profile_cutlass --kernel-name regex:cutlass --set full --force-overwrite python -m test.profile_cutlass
