@@ -68,8 +68,17 @@ from . import common
 from . import pytorch
 from .pytorch import utils as pytorch_utils
 import sys
+import os
+
+dir_of_this_script = os.path.dirname(sys.modules[__name__].__file__)
+# Try the following if the above does not work
+# dir_of_this_script = os.path.dirname(os.path.realpath(__file__))
 torch.classes.load_library(
-    f"intrasm_engine_extensions.cpython-{sys.version_info.major}{sys.version_info.minor}-x86_64-linux-gnu.so"
+    os.path.join(
+        dir_of_this_script,
+        "..",
+        f"intrasm_engine_extensions.cpython-{sys.version_info.major}{sys.version_info.minor}-x86_64-linux-gnu.so",
+    )
 )
 
 # pytorch_utils.set_tf32_use_tensor_core()
