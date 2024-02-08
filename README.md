@@ -10,6 +10,9 @@ pip install -e .
 
 [Python setup.py develop vs install - StackOverflow](https://stackoverflow.com/a/19048754)
 
+## Installation
+We need [scikit-sparse](https://github.com/scikit-sparse/scikit-sparse/tree/master) in some data-exploring and benchmark code. It needs additional step to pip install. Check the repo page for more details.
+
 ### Pybind Overloading
 [Binding Disambiguation - pybind11 Documentation](https://pybind11.readthedocs.io/en/stable/classes.html#:~:text=We%20can%20disambiguate%20by%20casting%20them%20to%20function%20pointers)
 

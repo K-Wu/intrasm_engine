@@ -28,8 +28,8 @@ def generate_mtx_from_smtx(smtx_filename):
         num_nonzeros = int(num_nonzeros)
         row_ptrs = lines[1].strip().split(" ")
         col_idxs = lines[2].strip().split(" ")
-        row_ptrs = [int(i) for i in row_ptrs]
-        col_idxs = [int(i) for i in col_idxs]
+        row_ptrs = [int(i) for i in row_ptrs if i != ""]  # Skip empty lines
+        col_idxs = [int(i) for i in col_idxs if i != ""]
 
     # generate values
     values = [random.random() for i in range(num_nonzeros)]
@@ -47,7 +47,20 @@ if __name__ == "__main__":
     # find all .smtx in data/, and convert them to .mtx
     import os
 
-    for root, dirs, files in os.walk("data"):
+    dlmc_data_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.realpath(__file__))),
+        "data",
+        "sgk_dlmc",
+    )
+    print("Working on DLMC data path:", dlmc_data_path)
+    for root, dirs, files in os.walk(dlmc_data_path):
+        print("Now in", root, dirs, files)
         for file in files:
             if file.endswith(".smtx"):
+                # Skip if the mtx file already exists
+                if os.path.exists(
+                    os.path.join(root, file[: file.rfind(".")] + ".mtx")
+                ):
+                    continue
+                print("Converting", os.path.join(root, file))
                 generate_mtx_from_smtx(os.path.join(root, file))
