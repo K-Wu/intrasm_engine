@@ -1,12 +1,86 @@
+import numpy as np
+
+# Documentation is at https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csgraph.reverse_cuthill_mckee.html
+from scipy.sparse.csgraph import reverse_cuthill_mckee
+from scipy.sparse import csr_matrix, coo_matrix
+import matplotlib.pyplot as plt
+
+
+def apply_reverse_chthill_mckee_AAt(mat_coo):
+    I0 = mat_coo.row
+    J0 = mat_coo.col
+    V0 = mat_coo.data
+    # print(I0.shape, J0.shape, V0.shape)
+    perm_rcm = reverse_cuthill_mckee(
+        csr_matrix(mat_coo * mat_coo.transpose()), symmetric_mode=True
+    ).astype(np.int32)
+    iperm_rcm = np.zeros(shape=mat_coo.shape[0], dtype=np.int32)
+    for js, jt in enumerate(perm_rcm):
+        iperm_rcm[jt] = js
+    assert np.all(perm_rcm[iperm_rcm] == np.array(range(perm_rcm.size)))
+
+    perm_col_rcm = reverse_cuthill_mckee(
+        csr_matrix(mat_coo.transpose() * mat_coo), symmetric_mode=True
+    ).astype(np.int32)
+    iperm_col_rcm = np.zeros(shape=mat_coo.shape[1], dtype=np.int32)
+    for js, jt in enumerate(perm_col_rcm):
+        iperm_col_rcm[jt] = js
+    assert np.all(
+        perm_col_rcm[iperm_col_rcm] == np.array(range(perm_col_rcm.size))
+    )
+
+    I_rcm = iperm_rcm[I0].astype(I0.dtype)
+    J_rcm = iperm_col_rcm[J0].astype(J0.dtype)
+    V_rcm = V0
+    A_rcm = coo_matrix(
+        (V_rcm, (I_rcm, J_rcm)), shape=(mat_coo.shape[0], mat_coo.shape[1])
+    )
+    return A_rcm
+
+
+def apply_reverse_chthill_mckee(mat_coo):
+    I0 = mat_coo.row
+    J0 = mat_coo.col
+    V0 = mat_coo.data
+    # print(I0.shape, J0.shape, V0.shape)
+    perm_rcm = reverse_cuthill_mckee(
+        csr_matrix(mat_coo), symmetric_mode=True
+    ).astype(np.int32)
+    iperm_rcm = np.zeros(shape=mat_coo.shape[0], dtype=np.int32)
+    for js, jt in enumerate(perm_rcm):
+        iperm_rcm[jt] = js
+    assert np.all(perm_rcm[iperm_rcm] == np.array(range(perm_rcm.size)))
+    I_rcm = iperm_rcm[I0].astype(I0.dtype)
+    J_rcm = iperm_rcm[J0].astype(J0.dtype)
+    V_rcm = V0
+    A_rcm = coo_matrix(
+        (V_rcm, (I_rcm, J_rcm)), shape=(mat_coo.shape[0], mat_coo.shape[1])
+    )
+    return A_rcm
+
+
+def apply_cholmod(mat_coo):
+    from sksparse.cholmod import (
+        # cholesky,
+        cholesky_AAt,
+        _modes,
+    )
+
+    modes = tuple(_modes.keys())
+
+    factor = cholesky_AAt(mat_coo, mode=modes[0])
+    factorT = cholesky_AAt(mat_coo.T, mode=modes[0])
+    permute = factor.P()
+    permuteT = factorT.P()
+    mat_coo_p = coo_matrix(
+        mat_coo.todense()[permute[:, np.newaxis], permuteT[np.newaxis, :]]
+    )
+    return mat_coo_p
+
+
 def reverse_chthill_mckee_example():
     # From https://stackoverflow.com/questions/75532847/reverse-cuthill-mckee-permutation-on-sparse-coo-matrix
-    import numpy as np
     from scipy import sparse
-    from scipy.sparse import csr_matrix, coo_matrix
-
-    # Documentation is at https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csgraph.reverse_cuthill_mckee.html
-    from scipy.sparse.csgraph import reverse_cuthill_mckee
-    import matplotlib.pyplot as plt
 
     npt = 100
     fmat = sparse.rand(npt, npt, density=0.02, random_state=1234) + np.eye(npt)
@@ -98,7 +172,6 @@ def test_cholesky_matrix_market():
             permute = factor.P()
             X_p = X[:, permute]
             fig = plt.figure()
-            fig = plt.figure()
             ax1 = fig.add_subplot(1, 2, 1)
             ax1.spy(X, markersize=1)
             ax1.set_xticks([0, X.shape[1] // 2, X.shape[1]])
@@ -108,3 +181,12 @@ def test_cholesky_matrix_market():
             ax2.set_xticks([0, X.shape[1] // 2, X.shape[1]])
             ax2.set_yticks([0, X.shape[0] // 2, X.shape[0]])
             plt.show()
+
+
+if __name__ == "__main__":
+    import scipy.io
+
+    mat = scipy.io.mmread(
+        "/home/kwu/cupy-playground/intrasm_engine/data/sgk_dlmc/dlmc/rn50/random_pruning/0.5/bottleneck_2_block_group3_2_1.mtx"
+    )
+    apply_reverse_chthill_mckee(mat)
