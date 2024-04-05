@@ -31,6 +31,12 @@ This repository follows the directory structure of [TransformerEngine - Github](
 2. [hf_training_trainer_prof.py](https://github.com/yqhu/profiler-workshop/blob/c8d4a7c30a61cc7b909d89f88f5fd36b70c55769/hf_training_trainer_prof.py) demonstrates how to profile a huggingface model via registering TrainerCallback.
 3. [hf_training_torch_prof.py](https://github.com/yqhu/profiler-workshop/blob/c8d4a7c30a61cc7b909d89f88f5fd36b70c55769/hf_training_torch_prof.py) demonstrates how to run the Huggingface model in steps and profile it via PyTorch profiler in native manner.
 
+#### Nsight Compute Flags
+Consider using the following to obtain Nsight Compute profiling results where inter-kernel interference is recorded.
+```
+--cache-control none --replay-mode application
+```
+
 ## Code Health Badges
 [![CodeFactor](https://www.codefactor.io/repository/github/k-wu/intrasm_engine/badge?s=749489c3b14056d2ece1446c9f6f3e55572069b3)](https://www.codefactor.io/repository/github/k-wu/intrasm_engine)
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/efbb131ba609458c8a586ea63c2534e2)](https://app.codacy.com?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
