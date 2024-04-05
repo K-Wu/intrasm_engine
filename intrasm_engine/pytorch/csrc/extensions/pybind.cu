@@ -102,6 +102,56 @@ c10::cuda::CaptureId_t capture_sequence_id() {
   return uuid++;
 }
 
+/// Synchronization utilities for multiprocessing
+/// Use an variable in the device memory shared via unified memory addressing to
+/// synchronize The variable is initialized and destroyed explicitly outside the
+/// multiprocessing region to avoid double initialization and destruction
+__global__ void _CUDAMultiprocessingSync_device_wait(int* sync_var) {
+  // Set the variable to 0
+  if (threadIdx.x == 0) {
+    unsigned int ns = 8;
+    // According to CUDA documentation, atomic APIs without a suffix are
+    // atomic at scope cuda::thread_scope_device
+    while (atomicCAS(sync_var, 1, 0) == 1) {
+      // exponential back-off from
+      // https://docs.nvidia.com/cuda/pdf/CUDA_C_Programming_Guide.pdf
+      __nanosleep(ns);
+      if (ns < 256) {
+        ns *= 2;
+      }
+    }
+  }
+}
+
+__global__ void _CUDAMultiprocessingSync_device_signal(int* sync_var) {
+  // Set the variable to 1
+  if (threadIdx.x == 0) {
+    unsigned int ns = 8;
+    while (atomicCAS(sync_var, 0, 1) == 0) {
+      // exponential back-off from
+      // https://docs.nvidia.com/cuda/pdf/CUDA_C_Programming_Guide.pdf
+      __nanosleep(ns);
+      if (ns < 256) {
+        ns *= 2;
+      }
+    }
+  }
+}
+
+void _CUDAMultiprocessingSync_wait(at::Tensor& sync_var) {
+  // Set the variable to 1
+  auto stream = at::cuda::getCurrentCUDAStream();
+  _CUDAMultiprocessingSync_device_wait<<<1, 1, 0, stream>>>(
+      sync_var.data_ptr<int>());
+}
+
+void _CUDAMultiprocessingSync_signal(at::Tensor& sync_var) {
+  // Reset the variable to 0
+  auto stream = at::cuda::getCurrentCUDAStream();
+  _CUDAMultiprocessingSync_device_signal<<<1, 1, 0, stream>>>(
+      sync_var.data_ptr<int>());
+}
+
 /// CUDA Graph Capture Notifier Class
 /// This is to bookkeep the pytorch states while using our CUDA Graph
 /// Constructor.
@@ -430,6 +480,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "print multiple cudaStream_t (overloaded API)");
   m.def("print_cudaevent", &IntraSMEngine::print_cudaevent,
         "print cudaEvent_t");
+  m.def("CUDAMultiprocessingSync_wait",
+        &IntraSMEngine::_CUDAMultiprocessingSync_wait,
+        "Wait -- multiprocessing sync");
+  m.def("CUDAMultiprocessingSync_signal",
+        &IntraSMEngine::_CUDAMultiprocessingSync_signal,
+        "Signal -- multiprocessing sync");
 
   /// Exporting class definitions
   shared_ptr_class_<IntraSMEngine::CUDAGraphCaptureNotifier>(
