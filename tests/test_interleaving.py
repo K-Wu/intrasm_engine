@@ -459,6 +459,9 @@ def run_interleaving(
                         matmul_execs_args[idx_stream][idx]()
                     )
                 constructor.capture_library_call_end()
+    constructor.join(
+        constructor.registeredStreams[1:], constructor.registeredStreams[0]
+    )
     constructor.instantiate_graph_exec()
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)

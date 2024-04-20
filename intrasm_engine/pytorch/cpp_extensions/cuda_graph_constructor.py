@@ -91,6 +91,12 @@ class TorchCUDAGraphConstructor:
             self.registeredStreams[0].torch_stream.stream.cuda_stream
         )
 
+    def join(self, streams: list[CompoundStream], dest_stream: CompoundStream):
+        self.constructor.join(
+            [stream.torch_stream.stream.cuda_stream for stream in streams],
+            dest_stream.torch_stream.stream.cuda_stream,
+        )
+
     def synchronize(self):
         """Do device synchronize and destroy the graphExec"""
         torch.cuda.synchronize(device=self.device)
