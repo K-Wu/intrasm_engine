@@ -230,7 +230,7 @@ def setup_requirements() -> Tuple[List[str], List[str], List[str]]:
             "torchknickknacks @"
             " git+https://github.com/AlGoulas/torchknickknacks.git"
         ),
-        "triton_autotuning @ git+https://github.com/K-Wu/triton_autotuning"
+        "triton_autotuning @ git+https://github.com/K-Wu/triton_autotuning",
         # TODO: enable the following and test if it works
         # "SparTA @ git+ssh://git@github.com:K-Wu/SparTA@main",
     ]
@@ -458,7 +458,6 @@ def setup_pytorch_extension() -> setuptools.Extension:
         root_path / "intrasm_engine" / "common" / "include",
         root_path / "intrasm_engine" / "pytorch" / "csrc",
         root_path / "intrasm_engine",
-        root_path / ".." / "cpp" / "include",
         root_path / "3rdparty" / "sputnik",
         # root_path / "3rdparty" / "cudnn-frontend" / "include",
     ]
