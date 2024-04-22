@@ -41,7 +41,7 @@ def bench_spmm(configs):
     results = []
 
     for (B, M, K), prob in configs:
-        b = torch.rand(B, M, K, device=device)
+        b = torch.rand(B, K, M, device=device)
 
         a_sparse = _create_random_sparsity(
             torch.rand(1, M, K), prob, divisible_by=16
@@ -72,7 +72,7 @@ def bench_spmm(configs):
                     },
                     label="spmm",
                     sub_label=(
-                        f"B={B:>4d}, M={M:>4d}, K={K:>3d}, prob={prob:0.4f}"
+                        f"B={B:>4d}, M=N={M:>4d}, K={K:>3d}, prob={prob:0.4f}"
                     ),
                     description=backend,
                 ).blocked_autorange(min_run_time=min_run_time)
