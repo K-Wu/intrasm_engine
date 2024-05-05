@@ -15,6 +15,12 @@ def test_pycuda_cuda_torch_interop():
     print("id: ", id)
     print("id_2: ", id_2)
     assert id == id_2
+    assert (
+        int(custream)
+        == int(custream_2)
+        == pycuda_stream.handle
+        == stream.cuda_stream
+    )
 
     # Test further if the stream is correctly produced
     torch.cuda.set_stream(stream)
