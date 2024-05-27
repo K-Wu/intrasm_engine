@@ -225,8 +225,16 @@ class CUDAGraphCaptureNotifier {
     // autograd thread's free() call triggering an invalid cudaEventRecord in
     // the caching allocator due to the capture status being updated _after_ a
     // capture had already started.
-    c10::cuda::CUDACachingAllocator::beginAllocateStreamToPool(
-        capture_dev_, capture_stream_, mempool_id_);
+    c10::cuda::CUDACachingAllocator::beginAllocateToPool(
+        capture_dev_, mempool_id_, [this](cudaStream_t stream) {
+          cudaStreamCaptureStatus status;
+          c10::cuda::CaptureId_t stream_capture_id;
+          AT_CUDA_CHECK(
+              cudaStreamGetCaptureInfo(stream, &status, &stream_capture_id));
+          return status ==
+                     cudaStreamCaptureStatus::cudaStreamCaptureStatusActive &&
+                 stream_capture_id == capture_id_;
+        });
   }
 
   void assert_capture_has_begun() {
@@ -242,13 +250,13 @@ class CUDAGraphCaptureNotifier {
     // The API and implementation of this function is based on
     // https://pytorch.org/docs/stable/generated/torch.cuda.CUDAGraph.html
 
-    c10::cuda::CUDACachingAllocator::endAllocateStreamToPool(capture_dev_,
-                                                             capture_stream_);
-
     auto stream = at::cuda::getCurrentCUDAStream();
 
     TORCH_CHECK(stream == capture_stream_,
                 "Capture must end on the same stream it began on.");
+    c10::cuda::CUDACachingAllocator::endAllocateToPool(capture_dev_,
+                                                       mempool_id_);
+
     auto* gen = at::get_generator_or_default<at::CUDAGeneratorImpl>(
         c10::nullopt, at::cuda::detail::getDefaultCUDAGenerator());
     TORCH_CHECK(gen == capture_gen_,
