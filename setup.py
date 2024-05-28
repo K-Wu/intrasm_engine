@@ -220,7 +220,7 @@ def setup_requirements() -> Tuple[List[str], List[str], List[str]]:
         "cupy",
         "cuda-python",
         "pycuda",
-        "nvidia-cutlass",
+        "nvidia-cutlass==3.4.0",
         # Suppress it to avoid frequent update leading to costly recompilation
         # (
         #     "xformers @"
