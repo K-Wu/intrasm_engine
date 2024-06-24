@@ -38,6 +38,11 @@ class CompoundStream:
         self.device = self.torch_stream.stream.device
 
     def __enter__(self):
+        """Both torch and cupy support setting the default stream, which is exactly what we do when CompounStream.__enter__() is called. In contrast, Pycuda does not have the default stream feature, and therefore we must set its stream explicitly on which the kernel launches to make sure the interleaving takes effect.
+        The following is an example of the pycuda call trace. In this example, what we need to do is to pass the current stream to cutlass_utils.prepare_GemmArguments as the stream argument.
+        Calling get_matmul_execs_cutlass_simt_f32 in test_cutlass_simt_f32_and_tensorop_interleave (https://github.com/K-Wu/intrasm_engine/blob/fd281674da5eff6b384cdd1b4e19678e232b58bb/tests/test_interleaving.py#L584)
+          - Calling cutlass_utils.prepare_GemmArguments in _get_matmul_execs_cutlass_simt_f32 (https://github.com/K-Wu/intrasm_engine/blob/fd281674da5eff6b384cdd1b4e19678e232b58bb/tests/test_interleaving.py#L245)
+        """
         print(
             "Warning: you need to set manually pycuda's stream in kernel"
             " launches."
