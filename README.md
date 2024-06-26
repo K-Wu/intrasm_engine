@@ -55,6 +55,31 @@ cuBLAS has the determinism issue, which requires either 1) one handle per stream
 
 No reported issue about cusparse determinism, and I guess the reason is it is deterministic because it has a specific bufferSize allocation operation for each SpMM operation.
 
+### Setting CarveOut
+Shared memory configurations by the driver are more coarse-grained than those set by in the occupancy calculation.
+As A100 supports 0/16KB/32KB/64KB/100KB/132KB/164KB, we may want to set the carveout to 100% for the best performance.
+
+To achieve this, append the following code to GemmRTBase.initialize() definition in python/cutlass/backend/gemm_operation.py in [NVIDIA/cutlass - Github](github.com/NVIDIA/cutlass)
+
+Documentation explaining CU_FUNC_ATTRIBUTE_PREFERRED_SHARED_MEMORY_CARVEOUT  : "On devices where the L1 cache and shared memory use the same hardware resources, this sets the shared memory carveout preference, in percent of the total shared memory."
+```
+err, = cuda.cuFuncSetAttribute(
+    self.kernel,
+    attrib=cuda.CUfunction_attribute.CU_FUNC_ATTRIBUTE_PREFERRED_SHARED_MEMORY_CARVEOUT,
+    value=100)
+if err != cuda.CUresult.CUDA_SUCCESS:
+    raise RuntimeError(
+        f"CUDA error on call to cuFuncSetAttribute: {cuda.cuGetErrorString(err)[1]}"
+    )
+# Set function cache preference
+err, = cuda.cuFuncSetCacheConfig(
+    self.kernel, cuda.CUfunc_cache.CU_FUNC_CACHE_PREFER_SHARED)
+if err != cuda.CUresult.CUDA_SUCCESS:
+    raise RuntimeError(
+        f"CUDA error on call to cuFuncSetCacheConfig: {cuda.cuGetErrorString(err)[1]}"
+    )
+```
+
 ### Reference
 [Is a pool of cuBLAS handles required for stream parallelism? #4676](https://github.com/cupy/cupy/issues/4676)
 [cuBLAS reproducibility](https://docs.nvidia.com/cuda/cublas/index.html#cublasApi_reproducibility)
