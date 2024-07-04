@@ -45,6 +45,19 @@ def test_cutlass_gemm():
     assert torch.allclose(D, D_torch)
 
 
+def print_cutlass_f16_simt_td():
+    dtype = torch.float16
+    plan = cutlass.op.Gemm(
+        element=dtype,
+        layout=cutlass.LayoutType.RowMajor,
+        element_C=cutlass.DataType.void,
+        element_accumulator=cutlass.DataType.f16,
+    )
+    plan.opclass = cutlass.OpcodeClass.Simt
+    for td in plan.tile_descriptions():
+        print(td)
+
+
 def test_customize_cutlass_gemm_td():
     dtype = torch.float32
     plan = cutlass.op.Gemm(
@@ -148,6 +161,8 @@ def test_cutlass_grouped_gemm():
 
 
 if __name__ == "__main__":
+    print_cutlass_f16_simt_td()
+    print("Done print_cutlass_f16_simt_td")
     test_customize_cutlass_gemm_td()
     test_cutlass_gemm()
     test_cutlass_grouped_gemm()
