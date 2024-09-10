@@ -1,6 +1,6 @@
 from typing import Optional, Any
 import torch
-from sparta.common.tuning import TunableItemCfg
+# from sparta.common.tuning import TunableItemCfg
 
 
 def assert_params_unpacked(params: dict):
@@ -58,15 +58,15 @@ class MyAutogradFunc(torch.autograd.Function):
             "You must implement _backward for your autograd function."
         )
 
-    @classmethod
-    def get_search_space(
-        cls,
-        sample_inputs: list[torch.Tensor],
-        sample_grads: Optional[list[torch.Tensor]],
-    ) -> dict[str, TunableItemCfg]:  # {'param_name': {param_values}}
-        raise NotImplementedError(
-            "You must implement get_search_space for your autograd function."
-        )
+    # @classmethod
+    # def get_search_space(
+    #     cls,
+    #     sample_inputs: list[torch.Tensor],
+    #     sample_grads: Optional[list[torch.Tensor]],
+    # ) -> dict[str, TunableItemCfg]:  # {'param_name': {param_values}}
+    #     raise NotImplementedError(
+    #         "You must implement get_search_space for your autograd function."
+    #     )
 
     @classmethod
     def _check_unwrapped_fwd_kwargs_sanity(

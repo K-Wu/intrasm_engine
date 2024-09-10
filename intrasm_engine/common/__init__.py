@@ -48,6 +48,10 @@ def _get_cudart_path() -> str:
         return "/projects/bbzc/kunwu2/spack/opt/spack/linux-rhel8-sandybridge/gcc-11.3.0/cuda-12.3.0-y3q7yk6kcuthrtopnxpjs4ui4knknetq/lib64/libcudart.so"
     elif hostname.startswith("kwu-csl227-99"):
         return "/usr/local/cuda-12.3/lib64/libcudart.so"
+    elif hostname.startswith("gpu"):
+        return "/sw/spack/deltas11-2023-03/apps/linux-rhel8-zen3/gcc-11.4.0/cuda-12.3.0-okhhaic/lib64/libcudart.so"
+    elif hostname.startswith("dt"):
+        return "/sw/spack/deltas11-2023-03/apps/linux-rhel8-zen3/gcc-11.4.0/cuda-12.3.0-okhhaic/lib64/libcudart.so"
     else:
         raise RuntimeError(
             f"Unknown hostname ({hostname}) in .common.__init__"
