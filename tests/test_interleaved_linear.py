@@ -1,6 +1,9 @@
 from __future__ import annotations
 from typing import Any
+from time import sleep
+import numpy as np
 import torch
+import torch.nn as nn
 import intrasm_engine.common.triton_utils as triton_utils
 import intrasm_engine.common.cutlass_utils as cutlass_utils
 import intrasm_engine_extensions as iex
@@ -121,6 +124,10 @@ def profile_interleaved_linear(layer, inputs_list):
     
     start_interleaved.record()
     for i in range(len(inputs_list)):
+        # try:
+        #     linear_interleaved(inputs_list[i])
+        # except Exception as e:
+        #     print(f"[ERROR]: {e}")
         linear_interleaved(inputs_list[i])
     end_interleaved.record()
     # print(out.shape)
@@ -146,12 +153,16 @@ def profile_normal_linear(layer, inputs_list):
     torch.cuda.synchronize()
     
     print(f"normal linear time for {repeat_times} times: ",start_golden.elapsed_time(end_golden))
-    
+
+def sleep_marker(sparsity, work_balance):
+    @nvtx.annotate(f"sp:{sparsity}, wb:{work_balance}")
+    def annotate():
+        sleep(0.5)
+    annotate()
 
 if __name__ == "__main__":
     print(
-        "testing interleaved linear layer, non batched input, currently"
-        " repeating ONLY ONCE"
+        "testing interleaved linear layer"
     )
     # test_interleaved_linear(32, 64, 8)
 
@@ -187,18 +198,49 @@ if __name__ == "__main__":
     in_features = 768           # k
     out_features = 768      # n 
     batch_size = 4 * 1024       # m
-    repeat_times = 10
+    repeat_times = 2
     
     # (m, k) * (k, n) = (m, n)
     # (128 * 41, 256) x (256, 256) = (128 * 41, 256)
     # weights are split by second dimension into (256, dense) and (256, sparse), sparse + dense = n
     
-    inputs_list = generate_inputs(in_features, batch_size, repeat_times)
-    linear_interleaved = MyInterleavedModule(in_features=in_features, out_features=out_features)
-    linear_golden = torch.nn.Linear(in_features=in_features, out_features=out_features, device="cuda", dtype=torch.float32)
-    linear_interleaved.randomly_prune_weights(0.8)
-    
+    sparsity_step = 0.2
+    sparsity_range = np.arange(0.0, 1.0 + sparsity_step, sparsity_step)
+    work_balance_step = 0.2
+    work_balance_range = np.arange(work_balance_step, 1.0 + work_balance_step, work_balance_step)
     torch.set_printoptions(edgeitems=30)
+    
+    grid_search = False
+    
+    if grid_search:
+        for sparsity in sparsity_range:
+            for work_balance in work_balance_range:
+                print(f"sparsity: {sparsity}")
+                print(f"work_balance (fraction of work with GEMM): {work_balance}")
+                sleep_marker(sparsity, work_balance)
+                inputs_list = generate_inputs(in_features, batch_size, repeat_times)
+                linear_interleaved = MyInterleavedModule(in_features=in_features, out_features=out_features, work_balance=work_balance)
+                linear_interleaved.randomly_prune_weights(sparsity)
+                
+                linear_golden = torch.nn.Linear(in_features=in_features, out_features=out_features, device="cuda", dtype=torch.float32)
+                # change linear_golden's weights to be the same as linear_interleaved
+                with torch.no_grad():
+                    linear_golden.weight = nn.Parameter(linear_interleaved.weights.clone().detach())
+                
+                
+                profile_interleaved_linear(linear_interleaved, inputs_list)
+                profile_normal_linear(linear_golden, inputs_list)
+    else:
+        inputs_list = generate_inputs(in_features, batch_size, repeat_times)
+        linear_interleaved = MyInterleavedModule(in_features=in_features, out_features=out_features, work_balance=0.85)
+        
+        linear_interleaved.randomly_prune_weights(0.8)
+
+        linear_golden = torch.nn.Linear(in_features=in_features, out_features=out_features, device="cuda", dtype=torch.float32)
+        # change linear_golden's weights to be the same as linear_interleaved
+        with torch.no_grad():
+            linear_golden.weight = nn.Parameter(linear_interleaved.weights.clone().detach())
+    
     profile_interleaved_linear(linear_interleaved, inputs_list)
     profile_normal_linear(linear_golden, inputs_list)
     

@@ -53,11 +53,10 @@ class MyInterleavedModule(torch.nn.Module):
     # put timing in module. self.time or something
     def __init__(self, in_features, out_features, work_balance=0.85, bias=False):  # on GPU
         super().__init__()
-        self.work_balance = work_balance
         self.in_features = in_features
         self.out_features = out_features
         # TODO: write forula for determine dense_out_features and sparse_out_features
-        self.dense_out_features = int(self.work_balance * out_features)
+        self.dense_out_features = int(work_balance * out_features)
         # self.dense_out_features = out_features
         self.sparse_out_features = self.out_features - self.dense_out_features
 
@@ -70,10 +69,18 @@ class MyInterleavedModule(torch.nn.Module):
         self.bias = torch.randn(
             out_features, 1, device="cuda", dtype=torch.float32
         )
+        # # split weights by first dimension (splitting out_features into 2)
+        # self.weights_sparse_csr = SparseCS(
+        #     self.weights[0 : out_features // 2, :], torch.device("cuda")
+        # )  # keep as (out_features / 2, in_features), spmm does weights @ inputs^T
+        # self.weights_dense = (
+        #     self.weights[out_features // 2 :, :].t().contiguous()
+        # )
 
+        # using 192 for dense, 64 for sparse (based on the output size of 256, set by me in temp.py)
         self.weights_sparse_csr = SparseCS(
             self.weights[0 : self.sparse_out_features, :], torch.device("cuda")
-        ) 
+        )  # keep as (out_features / 2, in_features), spmm does weights @ inputs^T
         self.weights_dense = (
             self.weights[self.sparse_out_features :, :].t().contiguous()
         )
@@ -127,8 +134,8 @@ class MyInterleavedModule(torch.nn.Module):
                 dtype=torch.float32,
             )
 
-            if self.work_balance > 0 and self.work_balance < 1.0:
-                self.constructor.register_new_stream()
+            # not registering new stream, everything happens on stream 0
+            # self.constructor.register_new_stream()
             gemm_op = cutlass.op.Gemm(
                 element=torch.float32,
                 layout=cutlass.LayoutType.RowMajor,
@@ -139,6 +146,12 @@ class MyInterleavedModule(torch.nn.Module):
             # print(type(tile_descr))
             # for description in tile_descr:
             #     print(description.procedural_name())
+            # gemm_op.opclass = cutlass.OpcodeClass.Simt
+            # gemm_op.tile_description = {
+            #     "threadblock_shape": [128, 64, 16],
+            #     "warp_count": [4, 2, 1],
+            #     "stages": 3
+            # }
 
             """ verifying leading dimensions correctness """
             # self.out_ld_test = torch.zeros(
@@ -192,8 +205,8 @@ class MyInterleavedModule(torch.nn.Module):
             # prep arguments checks the metadata, but in the actual cutlass code, the inputs are passed via pointer, so we don't have to put this in the graph
             gemm_args = cutlass_utils.prepare_GemmArguments(
                 gemm_op,
-                self.inputs,  # (batch, in_features),
-                self.weights_dense,  # (in_features, dense_out_features) due to work distribution
+                self.inputs,  # (batch, in_features), # (128 * 41, 256)
+                self.weights_dense,  # (in_features, out_features / 2) # (256, 192) due to work distribution
                 None,
                 self.out_dense,  # (in_features, dense_out_features), dense_out_features determined by work distribution
                 print_module=False,
@@ -207,69 +220,30 @@ class MyInterleavedModule(torch.nn.Module):
             # print("ldc: ", gemm_args.ldc) # not using C
             # print("ldd: ", gemm_args.ldd) # ldd = dense_out_features
 
-            # this is technically incorrect, but we put this here to get rid of the extra kernel in graph execution, for correctness, uncomment this call in stream 1
+            # this is technically incorrect, but we put this here to get rid of the extra kernel in graph computation, for correctness, uncomment this call in stream 1
             self.in_sparse = (  # we have to put this in the graph since the transpose and contiguous may have memory copies going on
                 self.inputs.t().unsqueeze(0).contiguous()
             )
 
-            if self.work_balance > 0 and self.work_balance < 1.0:
-                with self.constructor.registeredStreams[0] as compound_stream:
-                    self.constructor.capture_library_call_begin()
+            with self.constructor.registeredStreams[0] as compound_stream:
+                # start interleeaved
+                self.constructor.capture_library_call_begin()
 
-                    gemm_op.operation.run(gemm_args)
-                    # gemm_ld_test.operation.run(gemm_ld_test_args)
-
-                    self.constructor.capture_library_call_end()
-                with self.constructor.registeredStreams[1] as compound_stream:
-                    self.constructor.capture_library_call_begin()
-
-                    # self.in_sparse = ( # we have to put this in the graph since the transpose and contiguous may have memory copies going on
-                    #     self.inputs.t().unsqueeze(0).contiguous()
-                    # )
-                    self.out_sparse = (
-                        torch.ops.iex_ops.spmm_sputnik_reuse_weight(
-                            self.in_sparse,
-                            self.weights_sparse_csr.row_indices,
-                            self.weights_sparse_csr.values.squeeze(),
-                            self.weights_sparse_csr.row_offsets,
-                            self.weights_sparse_csr.column_indices,
-                            self.sparse_out_features,
-                        )
-                        .squeeze(0)
-                        .t()
+                gemm_op.operation.run(gemm_args)
+                self.out_sparse = (
+                    torch.ops.iex_ops.spmm_sputnik_reuse_weight(
+                        self.in_sparse,
+                        self.weights_sparse_csr.row_indices,
+                        self.weights_sparse_csr.values.squeeze(),
+                        self.weights_sparse_csr.row_offsets,
+                        self.weights_sparse_csr.column_indices,
+                        self.sparse_out_features,
                     )
-
-                    self.constructor.capture_library_call_end()
-
-                self.constructor.join(
-                    [self.constructor.registeredStreams[1]],
-                    self.constructor.registeredStreams[0],
+                    .squeeze(0)
+                    .t()
                 )
-            elif self.work_balance == 0: # all sparse
-                with self.constructor.registeredStreams[0] as compound_stream:
-                    self.constructor.capture_library_call_begin()
-                    
-                    self.out_sparse = (
-                        torch.ops.iex_ops.spmm_sputnik_reuse_weight(
-                            self.in_sparse,
-                            self.weights_sparse_csr.row_indices,
-                            self.weights_sparse_csr.values.squeeze(),
-                            self.weights_sparse_csr.row_offsets,
-                            self.weights_sparse_csr.column_indices,
-                            self.sparse_out_features,
-                        )
-                        .squeeze(0)
-                        .t()
-                    )
-                    
-                    self.constructor.capture_library_call_end()
-            else: # all dense
-                with self.constructor.registeredStreams[0] as compound_stream:
-                    self.constructor.capture_library_call_begin()
-                    
-                    gemm_op.operation.run(gemm_args)
 
-                    self.constructor.capture_library_call_end()
+                self.constructor.capture_library_call_end()
         elif (
             x.shape == self.copy_in.shape
         ):  # copy inputs and directly call apply on autograd function
