@@ -129,12 +129,24 @@ class MyInterleavedModule(torch.nn.Module):
 
             if self.work_balance > 0 and self.work_balance < 1.0:
                 self.constructor.register_new_stream()
+            # gemm_op = cutlass.op.Gemm(
+            #     element=torch.float32,
+            #     layout=cutlass.LayoutType.RowMajor,
+            #     element_C=cutlass.DataType.void,
+            #     element_accumulator=cutlass.DataType.f32,
+            # )
             gemm_op = cutlass.op.Gemm(
                 element=torch.float32,
-                layout=cutlass.LayoutType.RowMajor,
-                element_C=cutlass.DataType.void,
+                # layout=cutlass.LayoutType.RowMajor,
+                layout_A=cutlass.LayoutType.RowMajor,
+                element_A=cutlass.DataType.tf32,
+                layout_B=cutlass.LayoutType.ColumnMajor,
+                element_B=cutlass.DataType.tf32,
+                layout_C=cutlass.LayoutType.RowMajor,
+                element_C=cutlass.DataType.f32,
                 element_accumulator=cutlass.DataType.f32,
             )
+            gemm_op.opclass = cutlass.OpcodeClass.SparseTensorOp
             # tile_descr = gemm_op.tile_descriptions()
             # print(type(tile_descr))
             # for description in tile_descr:

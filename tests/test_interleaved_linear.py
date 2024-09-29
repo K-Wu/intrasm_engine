@@ -51,14 +51,22 @@ def generate_tensors(
     return {"weights": weights, "inputs": inputs}
 
 def generate_inputs(
-    in_features, batch_size, repeat_times
+    in_features, batch_size, repeat_times, type=torch.float32
 ) -> list[torch.Tensor]:
-    inputs = [
-        torch.randn(
-            batch_size, in_features, device = "cuda", dtype = torch.float32
-        )
-        for _ in range(repeat_times)
-    ]
+    if type == torch.float32:
+        inputs = [
+            torch.randn(
+                batch_size, in_features, device = "cuda", dtype = torch.float32
+            )
+            for _ in range(repeat_times)
+        ]
+    else:
+        inputs = [
+            torch.randn(
+                batch_size, in_features, device = "cuda", dtype = torch.float16
+            )
+            for _ in range(repeat_times)
+        ]
     
     return inputs
 
@@ -195,9 +203,12 @@ if __name__ == "__main__":
     
     # problem right now is each block is eating too much shared mem (using 98k/block max is 99k), goal is to have each kernel use less shared mem, so we fit
     # more blocks/SM. Problem may be caused by tiles being too big or too little warps (each warp responsible for too much data)
-    in_features = 768           # k
-    out_features = 768      # n 
-    batch_size = 4 * 1024       # m
+    # in_features = 768           # k
+    # out_features = 768      # n 
+    # batch_size = 4 * 1024       # m
+    in_features = 1024           # k
+    out_features = 1024      # n 
+    batch_size = 1024       # m
     repeat_times = 2
     
     # (m, k) * (k, n) = (m, n)
@@ -232,17 +243,18 @@ if __name__ == "__main__":
                 profile_normal_linear(linear_golden, inputs_list)
     else:
         inputs_list = generate_inputs(in_features, batch_size, repeat_times)
-        linear_interleaved = MyInterleavedModule(in_features=in_features, out_features=out_features, work_balance=0.85)
+        inputs_list_fp16 = generate_inputs(in_features, batch_size, repeat_times, torch.float16)
+        linear_interleaved = MyInterleavedModule(in_features=in_features, out_features=out_features, work_balance=1)
         
         linear_interleaved.randomly_prune_weights(0.8)
 
-        linear_golden = torch.nn.Linear(in_features=in_features, out_features=out_features, device="cuda", dtype=torch.float32)
+        linear_golden = torch.nn.Linear(in_features=in_features, out_features=out_features, device="cuda", dtype=torch.float16)
         # change linear_golden's weights to be the same as linear_interleaved
-        with torch.no_grad():
-            linear_golden.weight = nn.Parameter(linear_interleaved.weights.clone().detach())
+        # with torch.no_grad():
+        #     linear_golden.weight = nn.Parameter(linear_interleaved.weights.clone().detach())
     
-    profile_interleaved_linear(linear_interleaved, inputs_list)
-    profile_normal_linear(linear_golden, inputs_list)
+    profile_interleaved_linear(linear_interleaved, inputs_list_fp16)
+    profile_normal_linear(linear_golden, inputs_list_fp16)
     
     # nsys profile --cuda-graph-trace node -w true -t cuda,nvtx,osrt,cudnn,cublas -s none -o test_interleaved_linear -f true -x true python ./temp.py
     
