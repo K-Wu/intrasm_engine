@@ -67,6 +67,34 @@ class TorchCUDAGraphConstructor:
             context.torch_stream.stream for context in self.registeredStreams
         }, "Current stream is not registered."
 
+    def add_event_record_node(
+        self, event: torch.cuda.Event, torch_stream: torch.cuda.StreamContext
+    ):
+        # PyTorch's event is only created after event.record() is called. Before that, event.cuda_event is 0.
+        assert event.cuda_event != 0, (
+            "Event uninitialized! PyTorch initialize the event lazily. Please"
+            " call event.record() after creating the event object and before"
+            " the real recording to make sure the event is initialized."
+        )
+
+        self.constructor.add_event_record_node(
+            event.cuda_event, torch_stream.stream.cuda_stream
+        )
+
+    def add_stream_wait_event_node(
+        self, torch_stream: torch.cuda.StreamContext, event: torch.cuda.Event
+    ):
+        # PyTorch's event is only created after event.record() is called. Before that, event.cuda_event is 0.
+        assert event.cuda_event != 0, (
+            "Event uninitialized! PyTorch initialize the event lazily. Please"
+            " call event.record() after creating the event object and before"
+            " the real recording to make sure the event is initialized."
+        )
+
+        self.constructor.add_stream_wait_event_node(
+            torch_stream.stream.cuda_stream, event.cuda_event
+        )
+
     def capture_library_call_begin(self):
         self.assert_current_stream_registered()
         self.notifier.capture_begin(None)
