@@ -38,7 +38,7 @@ this.single_kernel_autograd_functions: list[type[torch.autograd.Function]] = []
 # TODO: check sputnik tiling information, we might need to grid search sputnik's tile descriptors
 #       check sputnik_kernels.cpp, need new host function, same kernel (new function name, same ID),
 #       new host file, reference sputnik_spmm_host_func.cu.inc, but need an input for which tiling config we use
-# TODO: test cutlass tensorop using fp16 instead of float32, also test interleaved fp16 using both cutlass tensorop and sputnik
+# TODO: test cutlass tensorop using fp16 instead of float16, also test interleaved fp16 using both cutlass tensorop and sputnik
 # NOTE: sputnik fp16 might end up scheduling work onto TC, so interleaving might not be very feasible
 # TODO: comment out copying of inputs
 
@@ -47,7 +47,6 @@ this.single_kernel_autograd_functions: list[type[torch.autograd.Function]] = []
 # objective: configure the tests so that we can get each SM to have active blocks from both GEMM and SPMM kernels, this way we actually get the benefits from interleaving
 #       1: customize tiling so that we can control the # of blocks from each kernel
 #       2: customize input sizes
-
 
 starts = []
 ends = []
@@ -68,10 +67,10 @@ class MyInterleavedModule(torch.nn.Module):
         self.in_sparse = None
         self.in_dense = None
         self.weights = torch.randn(
-            out_features, in_features, device="cuda", dtype=torch.float32
+            out_features, in_features, device="cuda", dtype=torch.float16
         )
         self.bias = torch.randn(
-            out_features, 1, device="cuda", dtype=torch.float32
+            out_features, 1, device="cuda", dtype=torch.float16
         )
 
         self.weights_sparse_csr = SparseCS(
@@ -106,6 +105,15 @@ class MyInterleavedModule(torch.nn.Module):
             self.weights_dense = (
                 self.weights[self.sparse_out_features :, :].t().contiguous()
             )
+            
+    def prune_2_to_4(self):
+        self.weights = self.weights.cpu()
+        pattern = [0, 0, 1, 1]
+        with torch.no_grad():
+            for i in range(self.out_features):
+                for j in range(self.in_features):
+                    self.weights[i, j] = pattern[j % 4] * self.weights[i, j]
+        self.weights = self.weights.cuda()
 
     def forward(self, x):  # copy new inputs into self.inputs
         size_out = x.size()[:-1] + (self.out_features,)
@@ -121,22 +129,28 @@ class MyInterleavedModule(torch.nn.Module):
                 self.inputs.shape[0],
                 self.dense_out_features,
                 device="cuda",
-                dtype=torch.float32,
+                dtype=torch.float16,
             )
             self.out_sparse = torch.zeros(
                 self.inputs.shape[0],
                 self.sparse_out_features,
                 device="cuda",
-                dtype=torch.float32,
+                dtype=torch.float16,
             )
 
-            if self.work_balance > 0 and self.work_balance < 1.0:
-                self.constructor.register_new_stream()
+            # if self.work_balance > 0 and self.work_balance < 1.0:
+            self.constructor.register_new_stream()
             gemm_op = cutlass.op.Gemm(
-                element=torch.float32,
+                element=torch.float16,
                 layout=cutlass.LayoutType.RowMajor,
+                layout_A=cutlass.LayoutType.RowMajor,
+                element_A=cutlass.DataType.f16,
+                layout_B=cutlass.LayoutType.RowMajor,
+                element_B=cutlass.DataType.f16,
+                # layout_C=cutlass.LayoutType.RowMajor,
                 element_C=cutlass.DataType.void,
-                element_accumulator=cutlass.DataType.f32,
+                # element_D=cutlass.DataType.f16,
+                element_accumulator=cutlass.DataType.f16,
             )
             # tile_descr = gemm_op.tile_descriptions()
             # print(type(tile_descr))
@@ -148,10 +162,10 @@ class MyInterleavedModule(torch.nn.Module):
             #     self.inputs.shape[0],
             #     self.out_features,
             #     device="cuda",
-            #     dtype=torch.float32,
+            #     dtype=torch.float16,
             # )
             # gemm_ld_test = cutlass.op.Gemm(
-            #     element=torch.float32,
+            #     element=torch.float16,
             #     layout=cutlass.LayoutType.RowMajor,
             #     element_C=cutlass.DataType.void,
             #     element_accumulator=cutlass.DataType.f32,
@@ -187,7 +201,7 @@ class MyInterleavedModule(torch.nn.Module):
 
             # specify tile description for GEMM operation
             gemm_op.tile_description = {
-                "threadblock_shape": [128, 128, 16],
+                "threadblock_shape": [128, 128, 32],
                 "warp_count": [2, 2, 1],
                 "stages": 3,
             }
@@ -237,10 +251,7 @@ class MyInterleavedModule(torch.nn.Module):
             starts.append(start_spmm)
             ends.append(end_gemm)
             ends.append(end_spmm)
-            
-            t_gemm = None
-            t_spmm = None
-            
+
             if self.work_balance > 0 and self.work_balance < 1.0:
                 with self.constructor.registeredStreams[0] as compound_stream:
                     self.constructor.add_event_record_node(
@@ -248,9 +259,10 @@ class MyInterleavedModule(torch.nn.Module):
                         self.constructor.registeredStreams[0].torch_stream
                     )
                     self.constructor.capture_library_call_begin()
-                    
+
                     gemm_op.operation.run(gemm_args)
-                    
+                    # gemm_ld_test.operation.run(gemm_ld_test_args)
+
                     self.constructor.capture_library_call_end()
                     self.constructor.add_event_record_node(
                         end_gemm,
@@ -266,20 +278,22 @@ class MyInterleavedModule(torch.nn.Module):
                     # self.in_sparse = ( # we have to put this in the graph since the transpose and contiguous may have memory copies going on
                     #     self.inputs.t().unsqueeze(0).contiguous()
                     # )
-                    
                     self.out_sparse = (
-                        torch.ops.iex_ops.spmm_sputnik_reuse_weight(
+                        torch.ops.iex_ops.spmm_sputnik_reuse_weight_half(
                             self.in_sparse,
                             self.weights_sparse_csr.row_indices,
+                            # self.weights_sparse_csr.row_indices.to(torch.int16),
                             self.weights_sparse_csr.values.squeeze(),
                             self.weights_sparse_csr.row_offsets,
-                            self.weights_sparse_csr.column_indices,
-                            self.sparse_out_features,
+                            # self.weights_sparse_csr.row_offsets.to(torch.int16),
+                            # self.weights_sparse_csr.column_indices,
+                            self.weights_sparse_csr.column_indices.to(torch.int16),
+                            self.out_features,
                         )
                         .squeeze(0)
                         .t()
                     )
-                        
+
                     self.constructor.capture_library_call_end()
                     self.constructor.add_event_record_node(
                         end_spmm,
@@ -289,31 +303,54 @@ class MyInterleavedModule(torch.nn.Module):
                     [self.constructor.registeredStreams[1]],
                     self.constructor.registeredStreams[0],
                 )
-            elif self.work_balance == 0: # all sparse
+            elif self.work_balance <= 0: # all sparse
                 with self.constructor.registeredStreams[0] as compound_stream:
+                    self.constructor.add_event_record_node(
+                        start_spmm,
+                        self.constructor.registeredStreams[1].torch_stream
+                    )
                     self.constructor.capture_library_call_begin()
                     
                     self.out_sparse = (
-                        torch.ops.iex_ops.spmm_sputnik_reuse_weight(
+                        torch.ops.iex_ops.spmm_sputnik_reuse_weight_half(
                             self.in_sparse,
                             self.weights_sparse_csr.row_indices,
+                            # self.weights_sparse_csr.row_indices.to(torch.int16),
                             self.weights_sparse_csr.values.squeeze(),
                             self.weights_sparse_csr.row_offsets,
-                            self.weights_sparse_csr.column_indices,
-                            self.sparse_out_features,
+                            # self.weights_sparse_csr.row_offsets.to(torch.int16),
+                            # self.weights_sparse_csr.column_indices,
+                            self.weights_sparse_csr.column_indices.to(torch.int16),
+                            self.out_features,
                         )
                         .squeeze(0)
                         .t()
                     )
                     
                     self.constructor.capture_library_call_end()
+                    self.constructor.add_event_record_node(
+                        end_spmm,
+                        self.constructor.registeredStreams[1].torch_stream
+                    )
             else: # all dense
                 with self.constructor.registeredStreams[0] as compound_stream:
+                    self.constructor.add_event_record_node(
+                        start_gemm,
+                        self.constructor.registeredStreams[0].torch_stream
+                    )
                     self.constructor.capture_library_call_begin()
                     
                     gemm_op.operation.run(gemm_args)
 
                     self.constructor.capture_library_call_end()
+                    self.constructor.add_event_record_node(
+                        end_gemm,
+                        self.constructor.registeredStreams[0].torch_stream
+                    )
+            # self.constructor.join(
+            #     [self.constructor.registeredStreams[1]],
+            #     self.constructor.registeredStreams[0],
+            # )
         elif (
             x.shape == self.copy_in.shape
         ):  # copy inputs and directly call apply on autograd function
@@ -324,8 +361,6 @@ class MyInterleavedModule(torch.nn.Module):
         MyInterleavedLinear._forward(
             self.constructor, constructor_enabled=True
         )
-        
-        
 
         with self.constructor.registeredStreams[0] as compound_stream:
             self.out = torch.concatenate(
@@ -345,9 +380,6 @@ class MyInterleavedModule(torch.nn.Module):
         # print(self.out.view(size_out).shape)
         return self.out.view(size_out)
 
-gemm_time = 0
-spmm_time = 0
-
 class MyInterleavedLinear(MyAutogradFunc):
     @staticmethod
     def num_inputs(**kwargs) -> int:
@@ -364,34 +396,23 @@ class MyInterleavedLinear(MyAutogradFunc):
     @staticmethod
     def _forward(constructor, **kwargs):
         constructor_enabled = kwargs["constructor_enabled"]
-        
-        # start_interleaved = torch.cuda.Event(enable_timing=True)
-        # end_interleaved = torch.cuda.Event(enable_timing=True)
-
-        @nvtx.annotate("interleaved_linear", color='blue')
-        def exec():
-            constructor.execute_graph()
 
         if constructor_enabled:
             constructor.instantiate_graph_exec()  # instantiates a graph execution object after we build the grpah object, CUDA graph API, measure this time, remove it from total
 
-            # only time execute_graph()
-            # constructor.execute_graph()  # actual execution of the graph
-            # start_interleaved.record()
-            exec()
-            # end_interleaved.record()
+            with nvtx.annotate('interleaved_linear', color='blue'):
+                constructor.execute_graph()
             torch.cuda.synchronize()
-            # print(f"interleaved time: ", start_interleaved.elapsed_time(end_interleaved))
 
             print('gemm_time: ', starts[0].elapsed_time(ends[0]))
             print('spmm_time: ', starts[1].elapsed_time(ends[1]))
+            print('overlap_time: ', max(
+                starts[0].elapsed_time(ends[0]),
+                starts[0].elapsed_time(ends[1]),
+                starts[1].elapsed_time(ends[0]),
+                starts[1].elapsed_time(ends[1])
+            ))
             
-            print('spmm - gemm start time: ', starts[0].elapsed_time(starts[1]))
-            print('spmm - gemm ends time: ', ends[0].elapsed_time(ends[1]))
-
-            print('gemm - spmm start time: ', starts[1].elapsed_time(starts[0]))
-            print('gemm - spmm ends time: ', ends[1].elapsed_time(ends[0]))
-
             constructor.destroy_graph_exec()
         else:
             raise NotImplementedError("we assume always using constructor")

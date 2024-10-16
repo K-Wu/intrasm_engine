@@ -190,4 +190,5 @@ TORCH_LIBRARY(iex_ops, m) {
   m.def("spmm_sputnik_atomic", &spmm_sputnik_atomic);
   m.def("spmm_sputnik_reuse_weight", &spmm_sputnik_reuse_weight);
   m.def("sddmm_sputnik_atomic_upd_weight", &sddmm_sputnik_atomic_upd_weight);
+  m.def("spmm_sputnik_reuse_weight_half", &spmm_sputnik_reuse_weight_half);
 }

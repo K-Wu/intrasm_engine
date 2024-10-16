@@ -26,7 +26,7 @@ from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor
 # from intrasm_engine.pytorch.cpp_extensions.layers_and_funcs.temp import (
 #     MyInterleavedLinear,
 # )
-from intrasm_engine.pytorch.cpp_extensions.layers_and_funcs.interleaved_linear_fp16 import (
+from intrasm_engine.pytorch.cpp_extensions.layers_and_funcs.interleaved_linear_semistructured_half import (
     MyInterleavedModule,
 )
 
@@ -126,7 +126,7 @@ def test_interleaved_linear(in_features, out_features, repeat_times):
     # print(out_cpu.squeeze(0).t()) # transpose into 1 x out_features to make it easier to read
     # print(out_golden.t())
 
-@nvtx.annotate("interleaved", color = "blue")
+# @nvtx.annotate("interleaved", color = "blue")
 def profile_interleaved_linear(layer, inputs_list):
     # move cuda events into layer for timing graph execution and concatentation
     # start_interleaved = torch.cuda.Event(enable_timing=True)
@@ -135,10 +135,10 @@ def profile_interleaved_linear(layer, inputs_list):
     # start_interleaved.record()
     for i in range(len(inputs_list)):
         # try:
-        #     layer(inputs_list[i])
+        #     linear_interleaved(inputs_list[i])
         # except Exception as e:
         #     print(f"[ERROR]: {e}")
-        out = layer(inputs_list[i])
+        linear_interleaved(inputs_list[i])
     # end_interleaved.record()
     # print(out.shape)
     # print(out_ld_test.shape)
@@ -148,9 +148,7 @@ def profile_interleaved_linear(layer, inputs_list):
     # print(out_ld_test[0])
     # print(out_ld_test[1])
     # # print(out_dense[0])
-    # torch.cuda.synchronize()
-    # print("gemm time: ", gemm_time)
-    # print("spmm time: ", spmm_time)
+    torch.cuda.synchronize()
     # print(f"interleaved time for {repeat_times} times: ", start_interleaved.elapsed_time(end_interleaved))
     
 @nvtx.annotate("normal linear", color = "red")
@@ -207,7 +205,7 @@ if __name__ == "__main__":
     
     # problem right now is each block is eating too much shared mem (using 98k/block max is 99k), goal is to have each kernel use less shared mem, so we fit
     # more blocks/SM. Problem may be caused by tiles being too big or too little warps (each warp responsible for too much data)
-    in_features = 768           # k 
+    in_features = 768           # k
     out_features = 768      # n 
     batch_size = 4 * 1024       # m
     # in_features = 1024           # k
@@ -248,17 +246,10 @@ if __name__ == "__main__":
     else:
         inputs_list = generate_inputs(in_features, batch_size, repeat_times)
         inputs_list_fp16 = generate_inputs(in_features, batch_size, repeat_times, torch.float16)
-        linear_interleaved = MyInterleavedModule(in_features=in_features, out_features=out_features, work_balance=0.8)
-        
-        # cutlass_only = MyInterleavedModule(in_features=in_features, out_features=out_features, work_balance=1.0)
-
-        # sputnik_only = MyInterleavedModule(in_features=in_features, out_features=out_features, work_balance=0)
-        
+        linear_interleaved = MyInterleavedModule(in_features=in_features, out_features=out_features)
         
         linear_interleaved.randomly_prune_weights(0.8)
-        
-        # cutlass_only.randomly_prune_weights(0.8)
-        # sputnik_only.randomly_prune_weights(0.95)
+        # linear_interleaved.prune_2_to_4()
 
         linear_golden = torch.nn.Linear(in_features=in_features, out_features=out_features, device="cuda", dtype=torch.float16)
         # change linear_golden's weights to be the same as linear_interleaved
@@ -266,9 +257,6 @@ if __name__ == "__main__":
         #     linear_golden.weight = nn.Parameter(linear_interleaved.weights.clone().detach())
     
         profile_interleaved_linear(linear_interleaved, inputs_list_fp16)
-        # profile_interleaved_linear(cutlass_only, inputs_list_fp16)
-        # sleep_marker(0.8, 0)
-        # profile_interleaved_linear(sputnik_only, inputs_list_fp16)
         profile_normal_linear(linear_golden, inputs_list_fp16)
     
     # nsys profile --cuda-graph-trace node -w true -t cuda,nvtx,osrt,cudnn,cublas -s none -o test_interleaved_linear -f true -x true python ./temp.py
